@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "dotnet-core-expert": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "computedHash": "600a39e427c027d55a9d566651475db063f1ff632f1b1e1ac2e5299940a0affb"
+    }
+  }
+}

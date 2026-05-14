@@ -1,0 +1,29 @@
+groups:
+  - name: cardswitch-alerts
+    rules:
+      - alert: KafkaDLQMessagesHigh
+        expr: increase(kafka_dlq_published_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka DLQ messages detected"
+          description: "At least one message was published to a DLQ in the last 5 minutes."
+
+      - alert: KafkaRetryStorm
+        expr: rate(kafka_retry_published_total[1m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High retry rate"
+          description: "Retry publish rate is high for more than 2 minutes."
+
+      - alert: IsoSwitchHighLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(iso_request_duration_ms_bucket[5m]))) > 500
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "IsoSwitch P95 latency high"
+          description: "P95 latency over 500ms in last 5 minutes."

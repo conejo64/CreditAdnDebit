@@ -1,0 +1,66 @@
+schema: spec-driven
+
+context: |
+  Tech stack: .NET 9, ASP.NET Core, Entity Framework Core, PostgreSQL, SQL Server Identity, Kafka, Angular 17
+  Architecture: Clean Architecture, CQRS with MediatR, DDD-oriented bounded contexts, microservice-style backend services
+  Runtime: CardVault, IsoSwitch, IsoAudit, shared BuildingBlocks, Docker Compose local infra
+  Integration: Kafka, outbox pattern, message signing, trace propagation, retries and DLQ behavior
+  Guardrails: preserve PCI boundaries, avoid raw PAN/PIN/PII in logs/events/responses, keep consumers idempotent
+  Testing: xUnit, NSubstitute, FluentAssertions, EF Core InMemory, coverlet, Angular Karma/Jasmine
+  Workflow: OpenSpec-style SDD, hybrid persistence, conventional commits only
+
+strict_tdd: true
+
+persistence:
+  mode: hybrid
+  engram_topic: sdd-init/ZitronSystem
+  local_store: openspec/
+
+testing:
+  strict_tdd: true
+  detected: 2026-05-14
+  backend:
+    runner: dotnet test backend/CardSwitchPlatform.sln
+    framework: xUnit
+    assertions: FluentAssertions
+    mocking: NSubstitute
+    integration_helpers:
+      - Microsoft.EntityFrameworkCore.InMemory
+    coverage:
+      available: true
+      command: dotnet test backend/CardSwitchPlatform.sln --collect:"XPlat Code Coverage"
+  frontend:
+    runner: npm --prefix frontend test
+    framework: Karma/Jasmine
+    typecheck: npm --prefix frontend run build
+    coverage:
+      available: true
+      command: npm --prefix frontend test -- --code-coverage
+  layers:
+    unit: true
+    integration: true
+    e2e: false
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages and bounded contexts
+  specs:
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Include concrete scenarios for every requirement
+  design:
+    - Document technical tradeoffs and boundary ownership
+    - Include sequence diagrams for complex integration flows
+  tasks:
+    - Group tasks by phase and keep tasks reviewable
+    - Forecast review workload before implementation
+  apply:
+    - STRICT TDD mode is active when tests exist: write/adjust tests before implementation
+    - Follow existing code patterns and loaded project skills
+    - Preserve Kafka/outbox durability, idempotency, PCI-safe logging, and traceability
+  verify:
+    - Run relevant tests where practical
+    - Compare implementation against every spec scenario
+  archive:
+    - Merge approved deltas back into openspec/specs
+    - Warn before destructive or large removals

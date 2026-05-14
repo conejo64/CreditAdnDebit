@@ -1,0 +1,15 @@
+﻿# Normalize text files across Windows/Linux agents
+* text=auto
+
+# Source and spec files should stay LF in the repository
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=crlf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.ps1 text eol=crlf
