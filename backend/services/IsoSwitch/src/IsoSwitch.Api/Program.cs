@@ -142,26 +142,34 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    var retryCount = 0;
-    while (retryCount < 5)
+    if (app.Environment.IsEnvironment("Testing"))
     {
-        try
+        // Test host: skip relational migrations; the DbContext uses InMemory.
+        await db.Database.EnsureCreatedAsync();
+    }
+    else
+    {
+        var retryCount = 0;
+        while (retryCount < 5)
         {
-            logger.LogInformation("Attempting to apply migrations for IsoSwitch (Attempt {RetryCount}/5)...", retryCount + 1);
-            await db.Database.MigrateAsync();
-            logger.LogInformation("IsoSwitch migrations applied successfully.");
-            break;
-        }
-        catch (Exception ex)
-        {
-            retryCount++;
-            if (retryCount >= 5)
+            try
             {
-                logger.LogCritical(ex, "Could not connect to IsoSwitch database after 5 attempts. Shutting down.");
-                throw;
+                logger.LogInformation("Attempting to apply migrations for IsoSwitch (Attempt {RetryCount}/5)...", retryCount + 1);
+                await db.Database.MigrateAsync();
+                logger.LogInformation("IsoSwitch migrations applied successfully.");
+                break;
             }
-            logger.LogWarning("IsoSwitch Database not ready yet, retrying in 5 seconds... ({Message})", ex.Message);
-            await Task.Delay(5000);
+            catch (Exception ex)
+            {
+                retryCount++;
+                if (retryCount >= 5)
+                {
+                    logger.LogCritical(ex, "Could not connect to IsoSwitch database after 5 attempts. Shutting down.");
+                    throw;
+                }
+                logger.LogWarning("IsoSwitch Database not ready yet, retrying in 5 seconds... ({Message})", ex.Message);
+                await Task.Delay(5000);
+            }
         }
     }
 
@@ -303,3 +311,6 @@ public sealed record SwitchAuthReversedV1(Guid AccountId, decimal Amount, string
 public sealed record SwitchClearingPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);
 public sealed record SwitchRefundPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, DateTimeOffset PostedOn);
 public sealed record SwitchChargebackPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? ReasonCode, DateTimeOffset PostedOn);
+
+// Required for WebApplicationFactory<Program> in integration tests.
+public partial class Program { }
