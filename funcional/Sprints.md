@@ -1,6 +1,6 @@
 # Sprints - CardSwitchPlatform
 
-> **Última auditoría:** 2026-03-26
+> **Última auditoría:** 2026-05-17 (rebaseline hardening)
 >
 > Este documento refleja el estado REAL de cada sprint verificado contra el código fuente.
 > Los estados se basan en evidencia técnica, no en intención.
@@ -92,7 +92,7 @@
 
 ---
 
-## Sprint 5: Auditoría, Switch Dashboard y Simulador — ✅ Completado (con deuda de seguridad)
+## Sprint 5: Auditoría, Switch Dashboard y Simulador — ✅ Completado
 
 **Objetivo:** Visualizar la operativa técnica, auditorías y ruteo transaccional del Switch.
 
@@ -103,9 +103,10 @@
 - [x] Backend: IsoSwitch API (`Program.cs`) con endpoints de transactions, audit, catalogs, routing.
 - [x] Frontend: `switch.service.ts`, `catalog.service.ts` implementados.
 
-### Deuda técnica
+### Deuda técnica *(resuelta — 2026-05-17)*
 
-- **⚠️ Los endpoints de `IsoSwitch.Api` siguen públicos.** La lógica principal ya fue extraída a `Endpoints/*` y `Program.cs` bajó de tamaño, pero el servicio no registra `AddAuthentication` / `AddAuthorization` ni aplica `RequireAuthorization()` en rutas operativas.
+- **✅ Endpoints de `IsoSwitch.Api` protegidos.** `AddAuthentication` / `AddAuthorization` registrados; `RequireAuthorization()` aplicado en todas las rutas operativas (transacciones, monitor, routing, catalogs, auditoria). Demo/simulator y health siguen públicos intencionalmente (`AllowAnonymous`).
+- Evidencia: `IsoSwitch.Tests/Auth/EndpointAuthBoundaryTests.cs` — 50/50 tests de endpoint-auth boundary pasan (401 sin token, 403 con rol insuficiente). Total suite: 71/71.
 
 
 ---
@@ -151,7 +152,8 @@
 ### Nota
 
 - Existen tests backend para `RiskDecisionService`, `HoldService` y handlers ISO críticos, por lo que ya no corresponde afirmar que no hay validación automatizada del sprint.
-- La cobertura dedicada del flujo `3DS` (`EcommerceThreeDsController` / `ThreeDsService`) sigue faltando, así que `v70` permanece parcialmente verificable.
+- La cobertura dedicada del flujo `3DS` (`EcommerceThreeDsController` / `ThreeDsService`) sigue faltando, así que `v70` permanece parcialmente verificable. No bloquea `v76` pero debe cerrarse antes de activar `v78+`.
+- Frontend: smoke tests de guards, interceptor y servicios de customers/statements verificados en Phase 3 del hardening (18/18 pasan).
 
 ---
 
@@ -195,19 +197,20 @@
 | Sprint 2 | ✅ Completado | ✅ **Completado** — customers/accounts operan contra API real y `IssuerController` está protegido | No |
 | Sprint 3 | ✅ Completado | ✅ Completado | No |
 | Sprint 4 | ✅ Completado | ✅ Completado | No |
-| Sprint 5 | ✅ Completado | ✅ Completado (deuda: endpoints `IsoSwitch` siguen públicos) | No |
+| Sprint 5 | ✅ Completado | ✅ **Completado** — endpoints `IsoSwitch` protegidos (401/403 verificados — 50/50 tests) | No |
 | Sprint 6 | ✅ Completado | ✅ Completado | No |
 | Sprint 7 | ✅ Completado | ✅ Completado | No |
-| Sprint 8 | ✅ Completado | 🟡 **Parcial** — falta cobertura automatizada específica para 3DS ecommerce | No |
+| Sprint 8 | ✅ Completado | 🟡 **Parcial** — falta cobertura automatizada específica para 3DS ecommerce | No (no bloquea v76) |
 | Sprint 9 | ✅ Completado | ✅ **COMPLETADO** | No |
 
 ## Deuda Transversal
 
-| Deuda | Impacto | Fase del Backlog |
-|-------|---------|-----------------|
-| Endpoints operativos de `IsoSwitch.Api` sin autenticación/autorización | 🔴 Crítico — resuelto en Fase 5 | Fase 1 |
-| Cobertura mínima incompleta en tests | 🔴 Crítico — resuelto en Fase 5 (100% Core + IsoSwitch OK) | Fase 5 |
-| Flujo 3DS sin tests automáticos dedicados | 🟡 Moderado — resuelto en Fase 5 | Fase 5 |
+| Deuda | Impacto | Estado (2026-05-17) |
+|-------|---------|---------------------|
+| Endpoints operativos de `IsoSwitch.Api` sin autenticación/autorización | 🔴 Crítico | ✅ **Resuelto** — 50/50 endpoint-auth tests pasan; 401 unauthenticated + 403 insuficiente rol |
+| Cobertura mínima incompleta en tests | 🔴 Crítico | ✅ **Resuelto** — 71/71 backend + 18/18 frontend smoke tests |
+| Flujo 3DS sin tests automáticos dedicados | 🟡 Moderado | ⚠️ **Pendiente** — no bloquea `v76`; deuda Sprint 8 |
+| Smoke tests frontend ausentes | 🔴 Crítico | ✅ **Resuelto** — guards, interceptor, customer.service, finance.service verificados |
 
 ---
 

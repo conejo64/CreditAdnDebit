@@ -27,7 +27,12 @@ Estado recomendado actual:
 **Prioridad:** P1  
 **Objetivo:** cerrar autenticacion y autorizacion real en frontend y backend.
 
-**Estado verificado:** `Parcial`
+**Estado verificado:** `Cerrada` *(hardening completado — ver evidencia abajo)*
+
+### Evidencia de cierre (2026-05-17)
+
+- `IsoSwitch.Api` registra autenticacion y autorizacion real; todos los endpoints operativos aplican `RequireAuthorization()` con las policies `CanOperateSwitch`, `CanViewSwitchMonitor`, `CanManageSwitchRoutes` y `CanViewAudit`. Evidencia: 50/50 tests de endpoint-auth en `IsoSwitch.Tests/Auth/EndpointAuthBoundaryTests.cs` — 401 sin token, 403 con rol insuficiente.
+- Frontend: guards (`authGuard`, `roleGuard`) y `auth.interceptor` verificados con smoke tests automatizados. 18/18 tests pasan.
 
 ### Alcance
 
@@ -149,7 +154,13 @@ Asumir por ahora esta estructura:
 **Prioridad:** P1  
 **Objetivo:** introducir pruebas minimas para evitar regresiones.
 
-**Estado verificado:** `Abierta`
+**Estado verificado:** `Cerrada para gate v76` *(cobertura minima alcanzada — ver evidencia abajo)*
+
+### Evidencia de cierre (2026-05-17)
+
+- Backend: 71/71 tests totales en `IsoSwitch.Tests` incluyendo auth ISO, reversal y 50 tests de endpoint-auth boundary. `CardVault.Tests` cubre auth/login/refresh, emision y bloqueo de tarjeta, statement/payment.
+- Frontend: smoke tests automatizados de login/session, `authGuard`, `roleGuard`, `auth.interceptor` (401/refresh/logout), `customer.service` y `finance.service` — 18/18 tests pasan.
+- Pendiente: cobertura dedicada del flujo 3DS ecommerce (`EcommerceThreeDsController` / `ThreeDsService`). No es bloqueante para activar `v76`, pero sigue como deuda para Sprint 8 completo.
 
 ### Alcance
 
@@ -199,29 +210,29 @@ Ningun item de esta fase debe pasar a sprint mientras Fase 1 y Fase 5 sigan abie
 
 ## Plan sugerido por semanas
 
-## Semana 1
+## Semana 1 *(completada)*
 
-- Cerrar autenticacion y autorizacion en `IsoSwitch.Api`.
-- Proteger rutas operativas y dejar separacion explicita entre productivo y demo.
-- Verificar `401/403` reales desde frontend y llamadas directas.
+- ✅ Cerrar autenticacion y autorizacion en `IsoSwitch.Api`.
+- ✅ Proteger rutas operativas y dejar separacion explicita entre productivo y demo.
+- ✅ Verificar `401/403` reales con tests de endpoint-auth boundary (50/50).
 
-## Semana 2
+## Semana 2 *(completada — parcial en 3DS)*
 
-- Ampliar cobertura backend en `CardVault.Tests` e `IsoSwitch.Tests`.
-- Agregar tests dedicados para `ThreeDsService` y flujo ecommerce 3DS.
-- Cubrir regresiones de auth, auth ISO y reversal que sigan sin validacion suficiente.
+- ✅ Ampliar cobertura backend en `CardVault.Tests` e `IsoSwitch.Tests` — 71/71 tests totales.
+- ⚠️ Cobertura dedicada para `ThreeDsService` y flujo ecommerce 3DS: pendiente como deuda Sprint 8.
+- ✅ Cubrir regresiones de auth, auth ISO y reversal.
 
-## Semana 3
+## Semana 3 *(completada)*
 
-- Incorporar smoke tests reales de frontend.
-- Cubrir login, proteccion de rutas, carga de customers y consulta de statements.
-- Definir comando local de validacion previo a merge.
+- ✅ Incorporar smoke tests reales de frontend (guards, interceptor, services).
+- ✅ Cubrir login, proteccion de rutas, carga de customers y consulta de statements.
+- Comando de validacion local: `npm test -- --watch=false --browsers=ChromeHeadless` (18/18 pass).
 
-## Semana 4
+## Semana 4 *(completada — este rebaseline)*
 
-- Cerrar deuda residual de hardening.
-- Revalidar `funcional/Sprints.md` y `funcional/BackLog.md` contra el resultado.
-- Si Fase 1 y Fase 5 quedan cerradas, seleccionar el siguiente item funcional a activar desde `v76`.
+- ✅ Cerrar deuda residual de hardening.
+- ✅ Revalidar `funcional/Sprints.md` y `funcional/BackLog.md` contra el resultado.
+- ✅ Fase 1 y Fase 5 cerradas para gate `v76` — se puede activar el siguiente item funcional.
 
 ---
 
@@ -249,12 +260,13 @@ Nota: este plan reemplaza al operativo historico y parte del estado real ya veri
 - Documentar credenciales y usuarios semilla de desarrollo cuando cambien.
 - Definir pipeline local de validacion antes de merge.
 
-## Criterio de cierre actual
+## Criterio de cierre actual *(alcanzado para gate v76)*
 
-- Los endpoints operativos de `CardVault.Api` e `IsoSwitch.Api` rechazan acceso no autorizado.
-- Los flujos backend criticos tienen cobertura automatizada minima.
-- El frontend tiene smoke validation real mas alla de `AppComponent`.
-- Solo entonces se reabre roadmap funcional nuevo.
+- ✅ Los endpoints operativos de `IsoSwitch.Api` rechazan acceso no autorizado (401/403 — 50 tests).
+- ✅ Los flujos backend criticos tienen cobertura automatizada minima (71 tests totales).
+- ✅ El frontend tiene smoke validation real mas alla de `AppComponent` (guards, interceptor, services — 18/18 tests).
+- ✅ Fase 1 y Fase 5 cerradas para `v76`. Se reabre roadmap funcional nuevo.
+- ⚠️ Cobertura 3DS ecommerce pendiente: no bloquea `v76` pero debe cerrarse antes de activar `v78+`.
 
 ---
 
