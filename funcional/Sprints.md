@@ -1,6 +1,6 @@
 # Sprints - CardSwitchPlatform
 
-> **Última auditoría:** 2026-03-26
+> **Última auditoría:** 2026-05-25 (rebaseline verificado contra repositorio actual)
 >
 > Este documento refleja el estado REAL de cada sprint verificado contra el código fuente.
 > Los estados se basan en evidencia técnica, no en intención.
@@ -105,7 +105,7 @@
 
 ### Deuda técnica
 
-- **⚠️ Los endpoints de `IsoSwitch.Api` siguen públicos.** La lógica principal ya fue extraída a `Endpoints/*` y `Program.cs` bajó de tamaño, pero el servicio no registra `AddAuthentication` / `AddAuthorization` ni aplica `RequireAuthorization()` en rutas operativas.
+- ~~**⚠️ Los endpoints de `IsoSwitch.Api` siguen públicos.**~~ **✅ Resuelto** — `harden-isoswitch-access` archivado el 2026-05-25. `IsoSwitch.Api` registra `AddAuthentication` / `AddAuthorization` y aplica `RequireAuthorization()` en todas las rutas operativas. 16 tests de auth-boundary en `IsoSwitch.Tests/Auth/AuthBoundaryTests.cs` validan el comportamiento. Suite total: 165 tests / 0 fallos.
 
 
 ---
@@ -195,7 +195,7 @@
 | Sprint 2 | ✅ Completado | ✅ **Completado** — customers/accounts operan contra API real y `IssuerController` está protegido | No |
 | Sprint 3 | ✅ Completado | ✅ Completado | No |
 | Sprint 4 | ✅ Completado | ✅ Completado | No |
-| Sprint 5 | ✅ Completado | ✅ Completado (deuda: endpoints `IsoSwitch` siguen públicos) | No |
+| Sprint 5 | ✅ Completado | ✅ Completado — deuda de seguridad IsoSwitch resuelta en `harden-isoswitch-access` (2026-05-25) | No |
 | Sprint 6 | ✅ Completado | ✅ Completado | No |
 | Sprint 7 | ✅ Completado | ✅ Completado | No |
 | Sprint 8 | ✅ Completado | 🟡 **Parcial** — falta cobertura automatizada específica para 3DS ecommerce | No |
@@ -205,9 +205,9 @@
 
 | Deuda | Impacto | Fase del Backlog |
 |-------|---------|-----------------|
-| Endpoints operativos de `IsoSwitch.Api` sin autenticación/autorización | 🔴 Crítico — resuelto en Fase 5 | Fase 1 |
-| Cobertura mínima incompleta en tests | 🔴 Crítico — resuelto en Fase 5 (100% Core + IsoSwitch OK) | Fase 5 |
-| Flujo 3DS sin tests automáticos dedicados | 🟡 Moderado — resuelto en Fase 5 | Fase 5 |
+| Endpoints operativos de `IsoSwitch.Api` sin autenticación/autorización | ✅ Resuelto — `harden-isoswitch-access` archivado 2026-05-25; 16 tests de auth-boundary en `IsoSwitch.Tests` | Fase 1 |
+| Cobertura mínima incompleta en tests | ✅ Resuelto — 184 tests / 0 fallos (CardVault 147 + IsoSwitch 37); cobertura 3DS ecommerce completa | Fase 5 |
+| Flujo 3DS sin tests automáticos dedicados | ✅ Resuelto — `add-3ds-ecommerce-tests`: 13 auth-boundary + 6 handler tests (2026-05-25) | Fase 5 |
 
 ---
 
@@ -217,7 +217,7 @@
 
 | Feature | Backend | Frontend | Estado |
 |---------|---------|----------|--------|
-| Mora Temprana (v76) | ✅ CQRS + Worker | ⛔ Scaffold | 🟡 Parcial (Falta Front) |
+| Mora Temprana (v76) | ✅ CQRS + Worker | ✅ Completo | ✅ Completado (`v76-mora-temprana` archivado 2026-05-25) |
 | Gestión de Cobranzas y Agencias (v77) | 🔴 | 🔴 | 🔴 No iniciado |
 | Reestructuración y Refinanciamiento (v78) | 🔴 | 🔴 | 🔴 No iniciado |
 | Condonaciones y Castigos (v79) | 🔴 | 🔴 | 🔴 No iniciado |

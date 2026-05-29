@@ -13,6 +13,7 @@ using CardVault.Infrastructure.Persistence.Accounting;
 using CardVault.Infrastructure.Persistence.Loyalty;
 using CardVault.Infrastructure.Persistence.Wallets;
 using CardVault.Infrastructure.Persistence.CreditLimits;
+using CardVault.Infrastructure.Persistence.Collections;
 using Microsoft.EntityFrameworkCore;
 
 namespace CardVault.Infrastructure.Persistence;
@@ -88,6 +89,10 @@ public sealed class CardVaultDbContext : DbContext
 
     // v76 - Early Delinquency (Mora Temprana)
     public DbSet<DelinquencyRecordEntity> DelinquencyRecords => Set<DelinquencyRecordEntity>();
+
+    // v77 - Collections Mutation
+    public DbSet<ContactAttemptEntity> ContactAttempts => Set<ContactAttemptEntity>();
+    public DbSet<DelinquencyNoteEntity> DelinquencyNotes => Set<DelinquencyNoteEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -593,6 +598,25 @@ public sealed class CardVaultDbContext : DbContext
             b.HasIndex(x => new { x.AccountId, x.Status });
             // Index for looking up the specific statement that triggered delinquency
             b.HasIndex(x => x.StatementId);
+        });
+
+        // v77 - Collections Mutation
+        modelBuilder.Entity<ContactAttemptEntity>(b =>
+        {
+            b.ToTable("ContactAttempts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.AttemptedBy).HasMaxLength(256).IsRequired();
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.HasIndex(x => x.DelinquencyRecordId);
+        });
+
+        modelBuilder.Entity<DelinquencyNoteEntity>(b =>
+        {
+            b.ToTable("DelinquencyNotes");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Content).HasMaxLength(1000).IsRequired();
+            b.Property(x => x.CreatedBy).HasMaxLength(256).IsRequired();
+            b.HasIndex(x => x.DelinquencyRecordId);
         });
 
         modelBuilder.Entity<CardVault.Infrastructure.Persistence.Vault.TokenVaultEntryEntity>(b =>

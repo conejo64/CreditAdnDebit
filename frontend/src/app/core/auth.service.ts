@@ -164,19 +164,29 @@ export class AuthService {
         );
     }
 
-    ensureAuthorized(allowedRoles: string[]): Observable<boolean | UrlTree> {
+    ensureAuthorized(allowedRoles: string[], requiredPermissions: string[] = []): Observable<boolean | UrlTree> {
         return this.ensureAuthenticated().pipe(
             map((result) => {
                 if (result !== true) {
                     return result;
                 }
 
-                if (allowedRoles.length === 0) {
+                if (allowedRoles.length === 0 && requiredPermissions.length === 0) {
                     return true;
                 }
 
                 const user = this.currentUserSignal();
-                if (user && allowedRoles.some((role) => user.roles.includes(role))) {
+                if (!user) {
+                    return this.router.createUrlTree(['/app/dashboard']);
+                }
+
+                const hasRole = allowedRoles.length > 0 && allowedRoles.some((role) => user.roles.includes(role));
+                if (hasRole) {
+                    return true;
+                }
+
+                const hasPermission = requiredPermissions.length > 0 && requiredPermissions.some(p => user.permissions.includes(p));
+                if (hasPermission) {
                     return true;
                 }
 

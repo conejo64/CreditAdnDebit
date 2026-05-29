@@ -1,10 +1,2 @@
-﻿namespace IsoSwitch.Tests;
-
-public class UnitTest1
-{
-    [Fact]
-    public void Test1()
-    {
-
-    }
-}
+﻿// Placeholder file — superseded by Auth/AuthBoundaryTests.cs and Features/**/*Tests.cs
+namespace IsoSwitch.Tests;

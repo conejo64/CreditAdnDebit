@@ -36,6 +36,8 @@ public static class PermissionCatalog
     public const string CreditLimitsManage   = "credit-limits:manage";
     public const string AccountingView       = "accounting:view";
     public const string AccountingManage     = "accounting:manage";
+    public const string CollectionsView      = "collections:view";
+    public const string CollectionsManage    = "collections:manage";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -67,7 +69,9 @@ public static class PermissionCatalog
         CreditLimitsView,
         CreditLimitsManage,
         AccountingView,
-        AccountingManage
+        AccountingManage,
+        CollectionsView,
+        CollectionsManage
     ];
 
     public static readonly IReadOnlyDictionary<string, string> Descriptions =
@@ -102,5 +106,8 @@ public static class PermissionCatalog
             [CreditLimitsManage]    = "Modificar cupos y aprobar propuestas de incremento",
             [AccountingView]        = "Consultar journals contables y mapeos",
             [AccountingManage]      = "Configurar mapeos contables y revisar journals",
+            [CollectionsView]       = "Consultar cuentas en mora temprana y sus buckets de antigüedad",
+        [CollectionsManage]     = "Registrar intentos de contacto y notas internas en cuentas en mora",
         };
+
 }

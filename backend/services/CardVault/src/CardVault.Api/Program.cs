@@ -151,6 +151,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CanManageCreditLimits",  p => p.RequireAssertion(ctx => RoleOrPerm(ctx.User, PermissionCatalog.CreditLimitsManage,    "Admin", "Operator")));
     options.AddPolicy("CanViewAccounting",      p => p.RequireAssertion(ctx => RoleOrPerm(ctx.User, PermissionCatalog.AccountingView,        "Admin", "Auditor")));
     options.AddPolicy("CanManageAccounting",    p => p.RequireAssertion(ctx => RoleOrPerm(ctx.User, PermissionCatalog.AccountingManage,      "Admin")));
+    options.AddPolicy("CanViewCollections",     p => p.RequireAssertion(ctx => RoleOrPerm(ctx.User, PermissionCatalog.CollectionsView,       "Admin", "Operator", "Auditor")));
+    options.AddPolicy("CanManageCollections",   p => p.RequireAssertion(ctx => RoleOrPerm(ctx.User, PermissionCatalog.CollectionsManage,     "Admin", "Operator")));
     options.AddPolicy("CanReadOpenBankingBalances", p => p.RequireAssertion(ctx =>
         string.Equals(ctx.User.FindFirstValue("grant_type"), "client_credentials", StringComparison.OrdinalIgnoreCase) &&
         HasScope(ctx.User, "ob:balances")));
@@ -423,6 +425,8 @@ app.MapGet("/health/vault", async (VaultSettingsStore store, CancellationToken c
 // -------------------- SETTLEMENT, HOLDS, AND DISPUTES MOVED TO CONTROLLERS --------------------
 app.MapControllers();
 app.Run();
+// Expose Program class for WebApplicationFactory in integration tests
+public partial class Program { }
 public sealed record CreateCustomerRequest(string FullName, string DocumentId, string Email, string Phone, string DocumentType, string Gender, string BillingAddress, string StatementAddress, string ResidenceCity, string StatementCity, string CardDeliveryCity);
 public sealed record CreateAccountRequest(Guid CustomerId, AccountType AccountType, string ProductCode, decimal CreditLimit);
 public sealed record IssueCardRequest(Guid AccountId, string Bin, string Pan, string ExpiryYyMm);

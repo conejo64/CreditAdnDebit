@@ -8,6 +8,7 @@ interface MenuItem {
   label: string;
   route: string;
   roles: string[];
+  permissions?: string[];
 }
 
 @Component({
@@ -310,6 +311,13 @@ export class SidebarComponent {
         { icon: 'people', label: 'Gestion de Usuarios', route: '/app/admin/users', roles: ['Admin'] },
         { icon: 'lock_person', label: 'Roles y Permisos', route: '/app/admin/roles', roles: ['Admin'] }
       ]
+    },
+    {
+      title: 'Cobranzas',
+      expanded: false,
+      items: [
+        { icon: 'warning', label: 'Mora Temprana', route: '/app/collections/delinquency', roles: ['Admin', 'Operator'], permissions: ['collections:view'] }
+      ]
     }
   ];
 
@@ -327,7 +335,16 @@ export class SidebarComponent {
       return false;
     }
 
-    return item.roles.some((role) => user.roles.includes(role));
+    const hasRole = item.roles.some((role) => user.roles.includes(role));
+    if (hasRole) {
+      return true;
+    }
+
+    if (item.permissions && item.permissions.length > 0) {
+      return item.permissions.some(p => user.permissions.includes(p));
+    }
+
+    return false;
   }
 
   hasVisibleItems(items: MenuItem[]): boolean {

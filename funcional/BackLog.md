@@ -13,10 +13,11 @@ Antes de comprometer nuevas funcionalidades de negocio en `Sprints.md`, se deben
 
 Estado recomendado actual:
 
-- Nuevas features: `En espera`
-- Hardening tecnico: `Prioridad maxima`
-- Foco P1 vigente: `cerrar seguridad de IsoSwitch y cobertura minima de pruebas`
-- Roadmap funcional v76+: `Planificado, no comprometido`
+- Nuevas features: `v77+ en espera (ver Fase 6)`
+- Hardening tecnico: `Fase 1 cerrada · Fase 5 cerrada`
+- Foco P1 resuelto: `IsoSwitch.Api protegido · 184 tests / 0 fallos · 3DS ecommerce completo`
+- Roadmap funcional v76: `Completado y archivado (2026-05-25)`
+- Roadmap funcional v77+: `Planificado, no comprometido`
 
 ---
 
@@ -27,7 +28,7 @@ Estado recomendado actual:
 **Prioridad:** P1  
 **Objetivo:** cerrar autenticacion y autorizacion real en frontend y backend.
 
-**Estado verificado:** `Parcial`
+**Estado verificado:** `Cerrada` _(rebaseline 2026-05-25 — `harden-isoswitch-access` archivado; 16 tests de auth-boundary confirman 401/403 en IsoSwitch.Api)_
 
 ### Alcance
 
@@ -149,7 +150,7 @@ Asumir por ahora esta estructura:
 **Prioridad:** P1  
 **Objetivo:** introducir pruebas minimas para evitar regresiones.
 
-**Estado verificado:** `Abierta`
+**Estado verificado:** `Cerrada` _(rebaseline 2026-05-25 — 184 tests / 0 fallos; 3DS auth-boundary + handler tests completos)_
 
 ### Alcance
 
@@ -199,17 +200,17 @@ Ningun item de esta fase debe pasar a sprint mientras Fase 1 y Fase 5 sigan abie
 
 ## Plan sugerido por semanas
 
-## Semana 1
+## Semana 1 ✅ Completada (2026-05-25)
 
-- Cerrar autenticacion y autorizacion en `IsoSwitch.Api`.
-- Proteger rutas operativas y dejar separacion explicita entre productivo y demo.
-- Verificar `401/403` reales desde frontend y llamadas directas.
+- ~~Cerrar autenticacion y autorizacion en `IsoSwitch.Api`.~~
+- ~~Proteger rutas operativas y dejar separacion explicita entre productivo y demo.~~
+- ~~Verificar `401/403` reales desde frontend y llamadas directas.~~
 
-## Semana 2
+## Semana 2 ✅ Completada (2026-05-25)
 
-- Ampliar cobertura backend en `CardVault.Tests` e `IsoSwitch.Tests`.
-- Agregar tests dedicados para `ThreeDsService` y flujo ecommerce 3DS.
-- Cubrir regresiones de auth, auth ISO y reversal que sigan sin validacion suficiente.
+- ✅ Cobertura backend: 184 tests / 0 fallos (CardVault 147 + IsoSwitch 37).
+- ✅ Tests 3DS ecommerce: 13 auth-boundary + 6 handler tests en `EcommerceThreeDsEndpointAuthTests` y `EcommerceThreeDsHandlerTests`.
+- ✅ Regresiones de auth, auth ISO y reversal cubiertas.
 
 ## Semana 3
 
@@ -262,10 +263,10 @@ Nota: este plan reemplaza al operativo historico y parte del estado real ya veri
 
 ### P1 - Ejecutar primero
 
-- Cerrar autenticacion/autorizacion de `IsoSwitch.Api`.
-- Verificar `401/403` reales end-to-end.
-- Completar cobertura minima backend.
-- Agregar smoke tests reales de frontend.
+- ~~Cerrar autenticacion/autorizacion de `IsoSwitch.Api`.~~ ✅ Cerrado (2026-05-25)
+- ~~Verificar `401/403` reales end-to-end.~~ ✅ Verificado con 16 auth-boundary tests
+- ~~Completar cobertura minima backend.~~ ✅ 184 tests / 0 fallos (incluyendo 3DS completo)
+- Agregar smoke tests reales de frontend — 🔲 Pendiente (Fase 5 cerrada en backend; frontend pendiente)
 
 ### P2 - Ejecutar inmediatamente despues
 
@@ -275,8 +276,8 @@ Nota: este plan reemplaza al operativo historico y parte del estado real ya veri
 
 ### P3 - Solo despues del hardening
 
-- `v76` Gestion de mora temprana.
-- `v77` Gestion de cobranza operativa.
+- ~~`v76` Gestion de mora temprana.~~ ✅ Completado y archivado (2026-05-25)
+- `v77` Gestion de cobranza operativa. _(desbloqueado cuando Fase 5 cierre)_
 - `v78` Promesas de pago.
 - `v79+` Evolucion de cartera y refinanciamiento.
 

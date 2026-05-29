@@ -33,6 +33,7 @@ import { WalletsListComponent } from './features/ecosystem/wallets-list.componen
 import { NotificationsListComponent } from './features/ecosystem/notifications-list.component';
 import { OpenBankingListComponent } from './features/ecosystem/open-banking-list.component';
 
+
 export const routes: Routes = [
     { path: '', redirectTo: 'auth/login', pathMatch: 'full' },
     { path: 'auth/login', component: LoginComponent },
@@ -71,6 +72,10 @@ export const routes: Routes = [
             { path: 'ecosystem/wallets', component: WalletsListComponent, canActivate: [roleGuard], data: { roles: ['Admin', 'Operator'] } },
             { path: 'ecosystem/notifications', component: NotificationsListComponent, canActivate: [roleGuard], data: { roles: ['Admin', 'Auditor'] } },
             { path: 'ecosystem/open-banking', component: OpenBankingListComponent, canActivate: [roleGuard], data: { roles: ['Admin'] } },
+            // v76 — Mora Temprana (collections read-only)
+            { path: 'collections/delinquency', loadComponent: () => import('./features/collections/delinquency-list.component').then(m => m.DelinquencyListComponent), canActivate: [roleGuard], data: { roles: ['Admin', 'Operator'], permissions: ['collections:view'] } },
+            // v77 — Collections mutation (detail view)
+            { path: 'collections/delinquencies/:id', loadComponent: () => import('./features/collections/delinquency-detail.component').then(m => m.DelinquencyDetailComponent), canActivate: [roleGuard], data: { roles: ['Admin', 'Operator'], permissions: ['collections:view'] } },
         ]
     },
     { path: '**', redirectTo: 'auth/login' }

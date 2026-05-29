@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_engram_engram__mem_search",
+      "Bash(git -C d:/Jonathan/desarrollo/ZitronSystem status --short)",
+      "Bash(git -C d:/Jonathan/desarrollo/ZitronSystem log --oneline -20)",
+      "mcp__plugin_engram_engram__mem_get_observation",
+      "Bash(New-Item -ItemType Directory -Force -Path \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\openspec\\\\changes\\\\fix-vault-rotation-policy\", \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\openspec\\\\changes\\\\secure-user-registration\", \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\openspec\\\\changes\\\\real-notification-channels\", \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\openspec\\\\changes\\\\fix-frontend-broken-features\")",
+      "Bash(Select-Object FullName)",
+      "Bash(mkdir -p \"d:/Jonathan/desarrollo/ZitronSystem/openspec/changes/fix-vault-rotation-policy\" \"d:/Jonathan/desarrollo/ZitronSystem/openspec/changes/secure-user-registration\" \"d:/Jonathan/desarrollo/ZitronSystem/openspec/changes/real-notification-channels\" \"d:/Jonathan/desarrollo/ZitronSystem/openspec/changes/fix-frontend-broken-features\" && echo \"dirs created\")",
+      "Bash(cd \"d:/Jonathan/desarrollo/ZitronSystem\")",
+      "Bash(echo '════════ __TRACKED_VAR__ ════════')",
+      "Bash(head -25 openspec/changes/__TRACKED_VAR__/proposal.md)",
+      "Bash(echo \"\")",
+      "Bash(echo \"  -- tasks done/total --\")",
+      "Bash(echo '== __TRACKED_VAR__ ==')",
+      "Bash(ls openspec/changes/__TRACKED_VAR__/)",
+      "Bash([ -f \"openspec/changes/$d/tasks.md\" ])",
+      "Bash(grep -ic '\\\\[x\\\\]' openspec/changes/__TRACKED_VAR__/tasks.md)",
+      "Bash(grep -ic '\\\\[ \\\\]' openspec/changes/__TRACKED_VAR__/tasks.md)"
+    ],
+    "additionalDirectories": [
+      "d:\\Jonathan\\desarrollo\\ZitronSystem\\openspec\\changes"
+    ]
+  }
+}
