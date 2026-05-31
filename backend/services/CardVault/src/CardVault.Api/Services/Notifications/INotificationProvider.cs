@@ -1,0 +1,134 @@
+using CardVault.Infrastructure.Persistence.Notifications;
+using Microsoft.AspNetCore.Http;
+
+namespace CardVault.Api.Services.Notifications;
+
+/// <summary>
+/// Outcome returned by a provider after a send attempt.
+/// </summary>
+public enum ProviderOutcome
+{
+    /// <summary>Provider accepted the message for delivery.</summary>
+    Accepted,
+
+    /// <summary>Transient failure — eligible for retry.</summary>
+    TransientFailure,
+
+    /// <summary>Permanent failure — do NOT retry; route to DeadLetter.</summary>
+    PermanentFailure
+}
+
+/// <summary>
+/// Immutable result returned by <see cref="INotificationProvider.SendAsync"/>.
+/// </summary>
+public sealed record ProviderSendResult(
+    ProviderOutcome Outcome,
+    string? ProviderReference,
+    string? ErrorCode,
+    string? ErrorMessage,
+    DateTimeOffset? ProviderReportedAt);
+
+/// <summary>
+/// Input to a provider send call. Contains the UNMASKED destination —
+/// must NEVER be logged or audited outside the provider adapter.
+/// </summary>
+public sealed record NotificationSendRequest(
+    Guid DeliveryId,
+    Guid TenantId,
+    NotificationChannel Channel,
+    string Destination,
+    string RenderedSubject,
+    string RenderedBody,
+    string TemplateType,
+    string Locale);
+
+/// <summary>
+/// Strategy adapter for a single notification provider (Twilio, SendGrid, Movistar-EC).
+/// Each adapter fully encapsulates its wire protocol.
+/// </summary>
+public interface INotificationProvider
+{
+    /// <summary>Stable provider identifier (e.g. "twilio", "sendgrid", "movistar-ec").</summary>
+    string ProviderId { get; }
+
+    /// <summary>The channel this provider handles.</summary>
+    NotificationChannel Channel { get; }
+
+    /// <summary>
+    /// Returns <c>true</c> if this provider can handle the given destination.
+    /// Movistar-EC restricts to <c>+593</c> prefix; others return <c>true</c> unconditionally.
+    /// </summary>
+    bool CanHandle(string destinationE164OrEmail);
+
+    /// <summary>
+    /// Sends the notification and returns a classified result.
+    /// The adapter is responsible for classifying transient vs permanent failures.
+    /// </summary>
+    Task<ProviderSendResult> SendAsync(NotificationSendRequest request, CancellationToken ct);
+}
+
+/// <summary>
+/// Resolves an ordered provider chain for a given (tenantId, channel, destination).
+/// Slice 1: returns fixed chains [Twilio] for SMS, [SendGrid] for Email.
+/// Slice 2: adds DB-backed per-tenant routing.
+/// </summary>
+public interface INotificationProviderRegistry
+{
+    /// <summary>
+    /// Returns the ordered list of providers to attempt for this delivery.
+    /// Filtered by <see cref="INotificationProvider.CanHandle"/>.
+    /// </summary>
+    IReadOnlyList<INotificationProvider> ResolveChain(Guid tenantId, NotificationChannel channel, string destination);
+}
+
+/// <summary>
+/// Claims a batch of pending/failed deliveries, drives the FSM, calls providers, persists transitions.
+/// </summary>
+public interface INotificationDispatcher
+{
+    /// <summary>
+    /// Claims up to <paramref name="take"/> rows, dispatches them, and returns
+    /// the count of rows that reached a terminal state (Sent or DeadLetter) this tick.
+    /// </summary>
+    Task<int> DispatchBatchAsync(int take, CancellationToken ct);
+}
+
+/// <summary>
+/// Guards delivery status transitions and computes backoff intervals.
+/// Stateless and injectable.
+/// </summary>
+public interface IDeliveryStateMachine
+{
+    /// <summary>Returns <c>true</c> if the transition is legal per the 5-state FSM.</summary>
+    bool CanTransition(NotificationDeliveryStatus from, NotificationDeliveryStatus to);
+
+    /// <summary>
+    /// Applies a valid transition to the entity, updating timestamps and status.
+    /// Throws <see cref="InvalidDeliveryTransitionException"/> on illegal transitions.
+    /// </summary>
+    void Transition(CustomerNotificationDeliveryEntity d, NotificationDeliveryStatus to);
+
+    /// <summary>
+    /// Computes the earliest next attempt time with ±10% jitter.
+    /// <list type="bullet">
+    ///   <item>attempt 1 → now + 30 s ± 10%</item>
+    ///   <item>attempt 2 → now + 2 min ± 10%</item>
+    /// </list>
+    /// </summary>
+    DateTimeOffset ComputeNextAttempt(int attempts, DateTimeOffset now);
+}
+
+/// <summary>
+/// Validates an inbound webhook request signature for a specific provider.
+/// </summary>
+public interface IWebhookSignatureValidator
+{
+    /// <summary>Stable provider identifier this validator handles.</summary>
+    string ProviderId { get; }
+
+    /// <summary>
+    /// Returns <c>true</c> if the request carries a valid, non-replayed signature.
+    /// Implementations must use constant-time comparison.
+    /// </summary>
+    bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody);
+}

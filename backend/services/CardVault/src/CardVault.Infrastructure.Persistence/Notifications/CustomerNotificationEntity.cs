@@ -69,7 +69,10 @@ public enum NotificationDeliveryStatus
 {
     Pending = 1,
     Sent = 2,
-    Failed = 3
+    Failed = 3,
+    // IMPORTANT: never renumber 1/2/3 above — existing DB rows use these integer values.
+    Sending = 4,
+    DeadLetter = 5
 }
 
 public sealed class CustomerNotificationDeliveryEntity
@@ -101,6 +104,24 @@ public sealed class CustomerNotificationDeliveryEntity
     public DateTimeOffset? LastAttemptOn { get; set; }
 
     public DateTimeOffset? DeliveredOn { get; set; }
+
+    /// <summary>
+    /// Set when the delivery transitions to <see cref="NotificationDeliveryStatus.Sending"/>.
+    /// Used as a distributed-lock timestamp for crash recovery: claim query reclaims rows
+    /// where <c>SendingStartedOn &lt; now - LockTtl</c>.
+    /// Cleared on terminal transitions (Sent, Failed, DeadLetter).
+    /// </summary>
+    public DateTimeOffset? SendingStartedOn { get; set; }
+
+    /// <summary>The next eligible time for a retry attempt (null = immediate/none).</summary>
+    public DateTimeOffset? NextAttemptOn { get; set; }
+
+    /// <summary>The provider that produced the terminal result (e.g. "twilio", "sendgrid").</summary>
+    [MaxLength(32)]
+    public string? ProviderId { get; set; }
+
+    /// <summary>Tenant routing key. Backfill existing rows with default tenant.</summary>
+    public Guid TenantId { get; set; }
 
     public DateTimeOffset CreatedOn { get; set; } = DateTimeOffset.UtcNow;
 }
