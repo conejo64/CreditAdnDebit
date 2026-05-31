@@ -105,7 +105,7 @@ import { NotificationService } from '../../../core/notification.service';
                     <span class="material-symbols-rounded" style="font-size:18px">password</span>
                     Cambiar PIN
                   </button>
-                  <button class="btn btn-outline btn-sm">Reposición de Plástico</button>
+                  <button class="btn btn-outline btn-sm" (click)="replaceCard()">Reposición de Plástico</button>
                 </div>
               </li>
              </ul>
@@ -292,14 +292,14 @@ export class CardDetailComponent implements OnInit {
         }
       });
     } else {
-      this.cardService.activateCard(this.card.id).subscribe({
+      this.cardService.unblockCard(this.card.id).subscribe({
         next: () => { 
             this.card!.status = CardStatus.Active; 
             this.notifications.success('Tarjeta reactivada correctamente');
         },
         error: (err) => { 
-            console.error('Error activating card:', err?.status); 
-            this.notifications.error('Error al intentar activar la tarjeta');
+            console.error('Error unblocking card:', err?.status); 
+            this.notifications.error('Error al intentar desbloquear la tarjeta');
         }
       });
     }
@@ -308,7 +308,7 @@ export class CardDetailComponent implements OnInit {
   cancelCard() {
     if (!this.card) return;
     if (confirm('¿Está seguro de CANCELAR este plástico de forma irreversible?')) {
-      this.cardService.blockCard(this.card.id).subscribe({
+      this.cardService.cancelCard(this.card.id).subscribe({
         next: () => { 
             this.card!.status = CardStatus.Cancelled; 
             this.notifications.success('Tarjeta cancelada definitivamente');
@@ -316,6 +316,22 @@ export class CardDetailComponent implements OnInit {
         error: (err) => { 
             console.error('Error cancelling card:', err?.status); 
             this.notifications.error('Error al intentar cancelar la tarjeta');
+        }
+      });
+    }
+  }
+
+  replaceCard() {
+    if (!this.card) return;
+    if (confirm('¿Está seguro de solicitar la REPOSICIÓN de este plástico? La tarjeta actual quedará cancelada.')) {
+      this.cardService.replaceCard(this.card.id).subscribe({
+        next: (newCard) => {
+          this.notifications.success('Reposición solicitada. Nueva tarjeta emitida.');
+          this.router.navigate([`/app/issuer/cards/${newCard.newCardId}`]);
+        },
+        error: (err) => {
+          console.error('Error replacing card:', err?.status);
+          this.notifications.error('Error al solicitar la reposición de la tarjeta');
         }
       });
     }

@@ -232,6 +232,53 @@ public sealed class IssuerServiceTests : IDisposable
 
     #endregion
 
+    #region Named Audit Events — Gap 4
+
+    /// <summary>
+    /// GAP-4 (RED): Spec requires UnblockCardAsync to emit a named 'issuer.card.unblocked'
+    /// audit event in addition to the generic 'issuer.card.status_changed'.
+    /// Fails until UnblockCardAsync calls _audit.WriteAsync("issuer.card.unblocked").
+    /// </summary>
+    [Fact]
+    public async Task UnblockCardAsync_ShouldEmitNamedUnblockedAuditEvent()
+    {
+        // Arrange — create card, activate, then block it
+        var card = await CreateTestCard();
+        await _sut.ChangeStatusAsync(card.Id, CardStatus.Active, "activated", CancellationToken.None);
+        await _sut.ChangeStatusAsync(card.Id, CardStatus.Blocked, "fraud suspicion", CancellationToken.None);
+
+        // Act
+        await _sut.UnblockCardAsync(card.Id, CancellationToken.None);
+
+        // Assert — named event must exist in addition to generic status_changed
+        var audits = await _audit.LatestAsync(50, CancellationToken.None);
+        audits.Should().Contain(a => a.EventType == "issuer.card.unblocked",
+            because: "spec requires a named 'issuer.card.unblocked' event, not just the generic status_changed");
+    }
+
+    /// <summary>
+    /// GAP-4 (RED): Spec requires CancelCardAsync to emit a named 'issuer.card.cancelled'
+    /// audit event in addition to the generic 'issuer.card.status_changed'.
+    /// Fails until CancelCardAsync calls _audit.WriteAsync("issuer.card.cancelled").
+    /// </summary>
+    [Fact]
+    public async Task CancelCardAsync_ShouldEmitNamedCancelledAuditEvent()
+    {
+        // Arrange
+        var card = await CreateTestCard();
+        await _sut.ChangeStatusAsync(card.Id, CardStatus.Active, "activated", CancellationToken.None);
+
+        // Act
+        await _sut.CancelCardAsync(card.Id, "client request", CancellationToken.None);
+
+        // Assert
+        var audits = await _audit.LatestAsync(50, CancellationToken.None);
+        audits.Should().Contain(a => a.EventType == "issuer.card.cancelled",
+            because: "spec requires a named 'issuer.card.cancelled' event, not just the generic status_changed");
+    }
+
+    #endregion
+
     #region Helpers
 
     private async Task<CustomerEntity> CreateTestCustomer()

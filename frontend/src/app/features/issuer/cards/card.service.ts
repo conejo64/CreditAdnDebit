@@ -54,6 +54,18 @@ export class CardService {
         return this.http.post(`${this.baseUrl}/${id}/block`, {});
     }
 
+    unblockCard(id: string): Observable<any> {
+        return this.http.post(`${this.baseUrl}/${id}/unblock`, {});
+    }
+
+    cancelCard(id: string, reason?: string): Observable<any> {
+        return this.http.post(`${this.baseUrl}/${id}/cancel`, { reason });
+    }
+
+    replaceCard(id: string, reason?: string): Observable<{ newCardId: string }> {
+        return this.http.post<{ newCardId: string }>(`${this.baseUrl}/${id}/replace`, { reason });
+    }
+
     setPin(id: string, pin: string): Observable<any> {
         return this.http.post(`${this.baseUrl}/${id}/pin`, { pin });
     }

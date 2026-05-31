@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { LoginComponent } from './features/auth/login.component';
 import { ForgotPasswordComponent } from './features/auth/forgot-password.component';
+import { ResetPasswordComponent } from './features/auth/reset-password.component';
 import { MainLayoutComponent } from './layout/main-layout.component';
 import { DashboardComponent } from './features/dashboard/dashboard.component';
 import { UsersComponent } from './features/admin/users.component';
@@ -38,6 +39,7 @@ export const routes: Routes = [
     { path: '', redirectTo: 'auth/login', pathMatch: 'full' },
     { path: 'auth/login', component: LoginComponent },
     { path: 'auth/forgot-password', component: ForgotPasswordComponent },
+    { path: 'auth/reset-password', component: ResetPasswordComponent },
     {
         path: 'app',
         component: MainLayoutComponent,

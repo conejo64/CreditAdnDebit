@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
+import { AuthService } from '../../core/auth.service';
 
 @Component({
   selector: 'app-forgot-password',
@@ -27,6 +28,8 @@ import { Router, RouterModule } from '@angular/router';
               <input type="email" [(ngModel)]="email" placeholder="usuario@zitron.com" class="form-control">
             </div>
           </div>
+
+          <div *ngIf="errorMessage" class="alert alert-danger mb-3">{{ errorMessage }}</div>
 
           <button class="btn btn-primary w-100 py-3 mb-3" [disabled]="!email" (click)="sendResetLink()">
             Enviar Enlace de Recuperación
@@ -79,11 +82,24 @@ import { Router, RouterModule } from '@angular/router';
 export class ForgotPasswordComponent {
   email = '';
   emailSent = false;
+  loading = false;
+  errorMessage = '';
   private router = inject(Router);
+  private authService = inject(AuthService);
 
   sendResetLink() {
     if (!this.email) return;
-    // Emulación de envío de correo
-    this.emailSent = true;
+    this.loading = true;
+    this.errorMessage = '';
+    this.authService.forgotPassword(this.email).subscribe({
+      next: () => {
+        this.loading = false;
+        this.emailSent = true;
+      },
+      error: () => {
+        this.loading = false;
+        this.errorMessage = 'Hubo un problema al enviar el enlace. Por favor intente nuevamente.';
+      }
+    });
   }
 }

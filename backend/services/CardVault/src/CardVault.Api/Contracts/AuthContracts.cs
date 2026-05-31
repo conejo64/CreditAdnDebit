@@ -28,3 +28,7 @@ public sealed record MfaEnableResponse(string OtpauthUri, string ManualKey, stri
 public sealed record MfaVerifyRequest(string Email, string Password, string Code);
 
 public sealed record DemoPublishRequest(string Message);
+
+public sealed record ForgotPasswordRequest(string Email);
+
+public sealed record ResetPasswordByTokenRequest(string Token, string NewPassword);

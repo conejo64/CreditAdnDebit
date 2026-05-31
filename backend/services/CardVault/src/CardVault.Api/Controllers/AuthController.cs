@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using CardVault.Api.Contracts;
 using CardVault.Api.Features.Auth.Commands;
 using System.Security.Claims;
@@ -67,5 +68,21 @@ public class AuthController : ControllerBase
             return Results.Unauthorized();
 
         return await _mediator.Send(new GetCurrentUserQuery(userId), ct);
+    }
+
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth_password_reset")]
+    public async Task<IResult> ForgotPassword([FromBody] ForgotPasswordRequest req, CancellationToken ct)
+    {
+        return await _mediator.Send(new ForgotPasswordCommand(req), ct);
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth_password_reset")]
+    public async Task<IResult> ResetPassword([FromBody] ResetPasswordByTokenRequest req, CancellationToken ct)
+    {
+        return await _mediator.Send(new ResetPasswordCommand(req), ct);
     }
 }

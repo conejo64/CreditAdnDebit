@@ -2,6 +2,7 @@ using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
 using CardVault.Api.Pci;
 using CardVault.Infrastructure.Persistence;
+using CardVault.Infrastructure.Persistence.Outbox;
 using CardVault.Infrastructure.Persistence.Vault;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
@@ -109,22 +110,27 @@ public sealed class TokenVaultService
     
     public async Task<RotateKeyResponse> RotateActiveKeyAsync(string newActiveKeyId, string actor, string? traceId, CancellationToken ct)
     {
-        // In this demo we update the singleton VaultOptions at runtime (not persisted).
-        // In production you would manage keys via a KMS/HSM and store only key identifiers + policy.
+        // Stage the audit outbox row BEFORE SetActiveKeyIdAsync so that both the
+        // settings change and the audit row are committed in the same SaveChangesAsync
+        // call (which is invoked inside SetActiveKeyIdAsync on the shared _db context).
+        // This satisfies the spec requirement: audit is transactional with the state change.
+        var rotatedOn = DateTimeOffset.UtcNow;
+        _db.OutboxMessages.Add(new OutboxMessageEntity
+        {
+            Topic      = "sw.cardvault.audit",
+            Key        = "vault",
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                type      = "cardvault.vault.rotate",
+                actor,
+                keyId     = newActiveKeyId,
+                traceId,
+                rotatedAt = rotatedOn
+            })
+        });
+
         var s = await _settings.SetActiveKeyIdAsync(newActiveKeyId, actor, ct);
         _crypto.SetActiveKeyId(s.ActiveKeyId);
-
-        var rotatedOn = DateTimeOffset.UtcNow;
-
-        await _bus.PublishAsync("sw.cardvault.audit", "vault", JsonSerializer.Serialize(new
-        {
-            type = "cardvault.vault.rotate",
-            activeKeyId = _crypto.ActiveKeyId,
-            actor,
-            at = rotatedOn
-        }), ct);
-
-        await _pciAudit.PublishAsync("pci.vault.rotate", "vault", new { activeKeyId = _crypto.ActiveKeyId, actor, traceId }, ct);
 
         return new RotateKeyResponse(_crypto.ActiveKeyId, rotatedOn, actor);
     }
@@ -161,20 +167,26 @@ public sealed class TokenVaultService
         }
 
         if (updated > 0)
-            await _db.SaveChangesAsync(ct);
-
-        await _bus.PublishAsync("sw.cardvault.audit", "vault", JsonSerializer.Serialize(new
         {
-            type = "cardvault.reencrypt.batch",
-            activeKeyId = active,
-            updated,
-            actor,
-            at = DateTimeOffset.UtcNow
-        }), ct);
+            // Add the audit outbox row inside the same SaveChangesAsync as the re-encrypted entries
+            // so audit persistence is atomic with the state change (spec: outbox durability).
+            _db.OutboxMessages.Add(new OutboxMessageEntity
+            {
+                Topic       = "sw.cardvault.audit",
+                Key         = "vault",
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    type            = "cardvault.reencrypt.batch",
+                    actor,
+                    traceId,
+                    recordsAffected = updated,
+                    completedAt     = DateTimeOffset.UtcNow
+                })
+            });
+            await _db.SaveChangesAsync(ct);
+        }
 
         await _settings.UpdateReencryptStateAsync(updated > 0 ? "completed" : "noop", updated, ct);
-
-        await _pciAudit.PublishAsync("pci.reencrypt.batch", "vault", new { activeKeyId = active, updated, actor, traceId }, ct);
 
         return new ReEncryptBatchResponse(active, updated, DateTimeOffset.UtcNow);
     }

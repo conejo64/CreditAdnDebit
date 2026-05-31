@@ -92,8 +92,12 @@ public class BlockCardCommandHandler : IRequestHandler<BlockCardCommand, IResult
 
     public async Task<IResult> Handle(BlockCardCommand request, CancellationToken cancellationToken)
     {
-        var card = await _issuer.ChangeStatusAsync(request.Id, CardStatus.Blocked, request.Request.Reason, cancellationToken);
-        return card is null ? Results.NotFound() : Results.Ok(new { card.Id, card.Status });
+        var (error, card) = await _issuer.BlockCardAsync(request.Id, request.Request.Reason, cancellationToken);
+        return error switch
+        {
+            CardLifecycleError.NotFound => Results.NotFound(),
+            _ => Results.Ok(new { card!.Id, card.Status })
+        };
     }
 }
 
@@ -157,5 +161,70 @@ public class UpdateAccountLimitsCommandHandler : IRequestHandler<UpdateAccountLi
 
         await _db.SaveChangesAsync(cancellationToken);
         return Results.Ok();
+    }
+}
+
+// ── Card Lifecycle: Unblock ───────────────────────────────────────────────────
+
+public record UnblockCardCommand(Guid Id) : IRequest<IResult>;
+public class UnblockCardCommandHandler : IRequestHandler<UnblockCardCommand, IResult>
+{
+    private readonly IssuerService _issuer;
+
+    public UnblockCardCommandHandler(IssuerService issuer) => _issuer = issuer;
+
+    public async Task<IResult> Handle(UnblockCardCommand request, CancellationToken cancellationToken)
+    {
+        var (error, _) = await _issuer.UnblockCardAsync(request.Id, cancellationToken);
+        return error switch
+        {
+            CardLifecycleError.NotFound     => Results.NotFound(),
+            CardLifecycleError.InvalidStatus => Results.Conflict(new { message = "Card is not in Blocked status." }),
+            _                               => Results.NoContent()
+        };
+    }
+}
+
+// ── Card Lifecycle: Cancel ───────────────────────────────────────────────────
+
+public record CancelCardCommand(Guid Id, CancelCardRequest Request) : IRequest<IResult>;
+public class CancelCardCommandHandler : IRequestHandler<CancelCardCommand, IResult>
+{
+    private readonly IssuerService _issuer;
+
+    public CancelCardCommandHandler(IssuerService issuer) => _issuer = issuer;
+
+    public async Task<IResult> Handle(CancelCardCommand request, CancellationToken cancellationToken)
+    {
+        var (error, _) = await _issuer.CancelCardAsync(request.Id, request.Request.Reason, cancellationToken);
+        return error switch
+        {
+            CardLifecycleError.NotFound     => Results.NotFound(),
+            CardLifecycleError.InvalidStatus => Results.Conflict(new { message = "Card is already cancelled." }),
+            _                               => Results.NoContent()
+        };
+    }
+}
+
+// ── Card Lifecycle: Replace ───────────────────────────────────────────────────
+
+public record ReplaceCardCommand(Guid Id, ReplaceCardRequest Request) : IRequest<IResult>;
+public class ReplaceCardCommandHandler : IRequestHandler<ReplaceCardCommand, IResult>
+{
+    private readonly IssuerService _issuer;
+
+    public ReplaceCardCommandHandler(IssuerService issuer) => _issuer = issuer;
+
+    public async Task<IResult> Handle(ReplaceCardCommand request, CancellationToken cancellationToken)
+    {
+        var (error, newCard) = await _issuer.ReplaceCardAsync(request.Id, request.Request.Reason, cancellationToken);
+        return error switch
+        {
+            CardLifecycleError.NotFound      => Results.NotFound(),
+            CardLifecycleError.InvalidStatus => Results.Conflict(new { message = "Cancelled cards cannot be replaced." }),
+            _                                => Results.Created(
+                $"/api/issuer/cards/{newCard!.Id}",
+                new { newCardId = newCard!.Id })
+        };
     }
 }

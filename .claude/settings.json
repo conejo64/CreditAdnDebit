@@ -17,7 +17,12 @@
       "Bash(ls openspec/changes/__TRACKED_VAR__/)",
       "Bash([ -f \"openspec/changes/$d/tasks.md\" ])",
       "Bash(grep -ic '\\\\[x\\\\]' openspec/changes/__TRACKED_VAR__/tasks.md)",
-      "Bash(grep -ic '\\\\[ \\\\]' openspec/changes/__TRACKED_VAR__/tasks.md)"
+      "Bash(grep -ic '\\\\[ \\\\]' openspec/changes/__TRACKED_VAR__/tasks.md)",
+      "Read(//c/Users/ortizja/.claude/skills/sdd-design/**)",
+      "Read(//c/Users/ortizja/.agents/skills/dotnet-best-practices/**)",
+      "Read(//c/Users/ortizja/.config/opencode/skills/work-unit-commits/**)",
+      "Read(//c/Users/ortizja/.agents/skills/dotnet-backend-patterns/**)",
+      "Bash(Get-ChildItem \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\backend\\\\services\\\\CardVault\\\\src\\\\CardVault.Api\" -Filter \"appsettings*.json\")"
     ],
     "additionalDirectories": [
       "d:\\Jonathan\\desarrollo\\ZitronSystem\\openspec\\changes"

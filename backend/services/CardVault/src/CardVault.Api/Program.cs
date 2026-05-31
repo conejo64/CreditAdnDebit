@@ -26,6 +26,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Metrics;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
@@ -78,6 +79,7 @@ builder.Services.AddScoped<PinService>();
 builder.Services.AddScoped<ThreeDsService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<OpenBankingService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddScoped<TokenService>();
@@ -160,9 +162,22 @@ builder.Services.AddAuthorization(options =>
         string.Equals(ctx.User.FindFirstValue("grant_type"), "client_credentials", StringComparison.OrdinalIgnoreCase) &&
         HasScope(ctx.User, "ob:transactions")));
 });
+// Resolve vault options early so the rate limiter can bind limits from config
+var vaultOptForRateLimit = builder.Configuration.GetSection("Vault").Get<CardVault.Api.Vault.VaultOptions>() ?? new CardVault.Api.Vault.VaultOptions();
 builder.Services.AddRateLimiter(options =>
 {
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("vault_detokenize", httpContext => RateLimitPartition.GetFixedWindowLimiter(partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon", factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueProcessingOrder = QueueProcessingOrder.OldestFirst, QueueLimit = 0 }));
+    options.AddPolicy("auth_password_reset", httpContext => RateLimitPartition.GetFixedWindowLimiter(partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon", factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueProcessingOrder = QueueProcessingOrder.OldestFirst, QueueLimit = 0 }));
+    options.AddPolicy("vault_admin_ops", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = vaultOptForRateLimit.AdminRateLimit.PermitLimit,
+            Window = TimeSpan.FromSeconds(vaultOptForRateLimit.AdminRateLimit.WindowSeconds),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = vaultOptForRateLimit.AdminRateLimit.QueueLimit
+        }));
 });
 // Vault (internal tokenization)
 var vaultOpt = builder.Configuration.GetSection("Vault").Get<CardVault.Api.Vault.VaultOptions>() ?? new CardVault.Api.Vault.VaultOptions();
@@ -185,6 +200,36 @@ builder.Services.AddHostedService<CardVault.Api.Background.HoldExpiryWorker>();
 builder.Services.AddHostedService<CardVault.Api.Background.NotificationDispatcherWorker>();
 builder.Services.AddHostedService<CardVault.Api.Background.DelinquencyEvaluationWorker>();
 var app = builder.Build();
+
+// ── Startup assertion: both vault rate-limit policies must be registered ──────
+{
+    var rlOptions = app.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>>().Value;
+    var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CardVault.Startup");
+
+    // Reflect into the internal policy map to verify policy names
+    var policyMapField = typeof(Microsoft.AspNetCore.RateLimiting.RateLimiterOptions)
+        .GetField("_policyMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+    if (policyMapField?.GetValue(rlOptions) is System.Collections.IDictionary policyMap)
+    {
+        if (!policyMap.Contains("vault_detokenize"))
+            throw new InvalidOperationException(
+                "Rate-limit policy 'vault_detokenize' is not registered. " +
+                "CardVault cannot start without all required vault rate-limit policies.");
+
+        if (!policyMap.Contains("vault_admin_ops"))
+            throw new InvalidOperationException(
+                "Rate-limit policy 'vault_admin_ops' is not registered. " +
+                "CardVault cannot start without all required vault rate-limit policies.");
+    }
+
+    startupLogger.LogInformation(
+        "Vault admin rate-limit bound: {PermitLimit} req / {Window}s / queue {Queue}",
+        vaultOptForRateLimit.AdminRateLimit.PermitLimit,
+        vaultOptForRateLimit.AdminRateLimit.WindowSeconds,
+        vaultOptForRateLimit.AdminRateLimit.QueueLimit);
+}
+
 // Create DBs quickly in Development (fast test). In prod, use Migrate().
 using (var scope = app.Services.CreateScope())
 {
@@ -431,6 +476,8 @@ public sealed record CreateCustomerRequest(string FullName, string DocumentId, s
 public sealed record CreateAccountRequest(Guid CustomerId, AccountType AccountType, string ProductCode, decimal CreditLimit);
 public sealed record IssueCardRequest(Guid AccountId, string Bin, string Pan, string ExpiryYyMm);
 public sealed record BlockCardRequest(string Reason);
+public sealed record CancelCardRequest(string? Reason);
+public sealed record ReplaceCardRequest(string? Reason);
 public sealed record DisputeTransitionRequest(string Action, string? Notes);
 public sealed record MinimumPaymentPolicyUpsert(string Code, bool IsDefault, decimal FloorAmount, decimal PrincipalPercent, decimal? CeilingAmount, bool IncludeInterest, bool IncludeFees);
 public sealed record ApplyPaymentRequest(decimal Amount, DateTimeOffset? PostedOn);

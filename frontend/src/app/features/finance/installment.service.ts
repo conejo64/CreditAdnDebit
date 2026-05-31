@@ -52,7 +52,7 @@ export interface DeferPurchaseRequest {
 })
 export class InstallmentService {
   private http = inject(HttpClient);
-  private baseUrl = `${environment.apiUrl}/api/billing`;
+  private baseUrl = `${environment.apiUrl}/billing`;
 
   getPlans(accountId: string): Observable<InstallmentPlan[]> {
     return this.http.get<InstallmentPlan[]>(`${this.baseUrl}/accounts/${accountId}/installments`);

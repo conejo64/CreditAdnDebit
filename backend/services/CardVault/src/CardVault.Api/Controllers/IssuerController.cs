@@ -94,6 +94,24 @@ public class IssuerController : ControllerBase
         return await _mediator.Send(new BlockCardCommand(id, req), ct);
     }
 
+    [HttpPost("cards/{id:guid}/unblock")]
+    public async Task<IResult> UnblockCard(Guid id, CancellationToken ct)
+    {
+        return await _mediator.Send(new UnblockCardCommand(id), ct);
+    }
+
+    [HttpPost("cards/{id:guid}/cancel")]
+    public async Task<IResult> CancelCard(Guid id, [FromBody] CancelCardRequest req, CancellationToken ct)
+    {
+        return await _mediator.Send(new CancelCardCommand(id, req), ct);
+    }
+
+    [HttpPost("cards/{id:guid}/replace")]
+    public async Task<IResult> ReplaceCard(Guid id, [FromBody] ReplaceCardRequest req, CancellationToken ct)
+    {
+        return await _mediator.Send(new ReplaceCardCommand(id, req), ct);
+    }
+
     [HttpPost("cards/{id:guid}/pin")]
     public async Task<IResult> SetPin(Guid id, [FromBody] SetPinRequest req, CancellationToken ct)
     {

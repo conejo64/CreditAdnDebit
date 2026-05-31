@@ -80,6 +80,18 @@ public sealed class VaultCrypto
 }
 
 
+public sealed class AdminRateLimitOptions
+{
+    /// <summary>Maximum requests allowed in the sliding window. Dev default: 20 (relaxed).</summary>
+    public int PermitLimit { get; set; } = 20;
+
+    /// <summary>Window length in seconds. Dev default: 60 s.</summary>
+    public int WindowSeconds { get; set; } = 60;
+
+    /// <summary>Queue depth. 0 = surface 429 immediately; no queuing.</summary>
+    public int QueueLimit { get; set; } = 0;
+}
+
 public sealed class VaultOptions
 {
     // New v19: multiple keys for rotation
@@ -89,4 +101,7 @@ public sealed class VaultOptions
     // Back-compat (v18)
     public string PrimaryKeyId { get; set; } = "k1";
     public string PrimaryKeyB64 { get; set; } = "";
+
+    /// <summary>Rate-limit policy for admin vault operations (rotate, re-encrypt).</summary>
+    public AdminRateLimitOptions AdminRateLimit { get; set; } = new();
 }

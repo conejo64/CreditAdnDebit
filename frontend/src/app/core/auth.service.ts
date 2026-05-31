@@ -133,6 +133,14 @@ export class AuthService {
         );
     }
 
+    forgotPassword(email: string): Observable<void> {
+        return this.http.post<void>(`${environment.apiUrl}/auth/forgot-password`, { email });
+    }
+
+    resetPassword(token: string, newPassword: string): Observable<void> {
+        return this.http.post<void>(`${environment.apiUrl}/auth/reset-password`, { token, newPassword });
+    }
+
     ensureAuthenticated(): Observable<boolean | UrlTree> {
         const accessToken = this.getAccessToken();
         if (!accessToken) {

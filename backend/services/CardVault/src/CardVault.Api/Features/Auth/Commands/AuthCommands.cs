@@ -244,3 +244,42 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, I
         return Results.Ok(authenticatedUser);
     }
 }
+
+// ── Password Recovery: ForgotPassword ────────────────────────────────────────
+
+public record ForgotPasswordCommand(ForgotPasswordRequest Request) : IRequest<IResult>;
+public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordCommand, IResult>
+{
+    private readonly CardVault.Api.Services.IPasswordResetService _pwdReset;
+
+    public ForgotPasswordCommandHandler(CardVault.Api.Services.IPasswordResetService pwdReset)
+        => _pwdReset = pwdReset;
+
+    public async Task<IResult> Handle(ForgotPasswordCommand request, CancellationToken cancellationToken)
+    {
+        // Always return 202 — never reveal whether the email exists (security, spec HC-2-S4)
+        await _pwdReset.CreateTokenAsync(request.Request.Email, cancellationToken);
+        return Results.Accepted();
+    }
+}
+
+// ── Password Recovery: ResetPassword ─────────────────────────────────────────
+
+public record ResetPasswordCommand(ResetPasswordByTokenRequest Request) : IRequest<IResult>;
+public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand, IResult>
+{
+    private readonly CardVault.Api.Services.IPasswordResetService _pwdReset;
+
+    public ResetPasswordCommandHandler(CardVault.Api.Services.IPasswordResetService pwdReset)
+        => _pwdReset = pwdReset;
+
+    public async Task<IResult> Handle(ResetPasswordCommand request, CancellationToken cancellationToken)
+    {
+        var ok = await _pwdReset.ResetPasswordAsync(
+            request.Request.Token, request.Request.NewPassword, cancellationToken);
+
+        return ok
+            ? Results.NoContent()
+            : Results.BadRequest(new { message = "Invalid or expired token." });
+    }
+}

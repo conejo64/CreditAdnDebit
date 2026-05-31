@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CardVault.Api.Services;
 
+public enum CardLifecycleError { None = 0, NotFound, InvalidStatus }
+
 public sealed class IssuerService
 {
     private readonly CardVaultDbContext _db;
@@ -119,6 +121,108 @@ public sealed class IssuerService
 
     public Task<CardEntity?> GetCardAsync(Guid id, CancellationToken ct) =>
         _db.Cards.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+
+    public async Task<(CardLifecycleError Error, CardEntity? Card)> BlockCardAsync(Guid cardId, string reason, CancellationToken ct)
+    {
+        var card = await _db.Cards.FirstOrDefaultAsync(x => x.Id == cardId, ct);
+        if (card is null) return (CardLifecycleError.NotFound, null);
+
+        var result = await ChangeStatusAsync(cardId, CardStatus.Blocked, reason, ct);
+
+        await _audit.WriteAsync("issuer.card.blocked",
+            new { cardId, reason },
+            correlationId: null,
+            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
+            ct: ct);
+
+        return (CardLifecycleError.None, result);
+    }
+
+    public async Task<(CardLifecycleError Error, CardEntity? Card)> UnblockCardAsync(Guid cardId, CancellationToken ct)
+    {
+        var card = await _db.Cards.FirstOrDefaultAsync(x => x.Id == cardId, ct);
+        if (card is null) return (CardLifecycleError.NotFound, null);
+        if (card.Status != CardStatus.Blocked) return (CardLifecycleError.InvalidStatus, null);
+
+        var result = await ChangeStatusAsync(cardId, CardStatus.Active, "unblocked", ct);
+
+        await _audit.WriteAsync("issuer.card.unblocked",
+            new { cardId },
+            correlationId: null,
+            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
+            ct: ct);
+
+        return (CardLifecycleError.None, result);
+    }
+
+    public async Task<(CardLifecycleError Error, CardEntity? Card)> CancelCardAsync(Guid cardId, string? reason, CancellationToken ct)
+    {
+        var card = await _db.Cards.FirstOrDefaultAsync(x => x.Id == cardId, ct);
+        if (card is null) return (CardLifecycleError.NotFound, null);
+        if (card.Status == CardStatus.Cancelled) return (CardLifecycleError.InvalidStatus, null);
+
+        var result = await ChangeStatusAsync(cardId, CardStatus.Cancelled, reason ?? "cancelled", ct);
+
+        await _audit.WriteAsync("issuer.card.cancelled",
+            new { cardId, reason },
+            correlationId: null,
+            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
+            ct: ct);
+
+        return (CardLifecycleError.None, result);
+    }
+
+    public async Task<(CardLifecycleError Error, CardEntity? NewCard)> ReplaceCardAsync(Guid cardId, string? reason, CancellationToken ct)
+    {
+        var old = await _db.Cards.FirstOrDefaultAsync(x => x.Id == cardId, ct);
+        if (old is null) return (CardLifecycleError.NotFound, null);
+        if (old.Status == CardStatus.Cancelled) return (CardLifecycleError.InvalidStatus, null);
+
+        // Cancel the old card
+        var fromStatus = old.Status;
+        old.Status = CardStatus.Cancelled;
+        _db.CardStatusHistory.Add(new CardStatusHistoryEntity
+        {
+            Id = Guid.NewGuid(),
+            CardId = old.Id,
+            FromStatus = fromStatus,
+            ToStatus = CardStatus.Cancelled,
+            Reason = reason ?? "replaced",
+            ChangedOn = DateTimeOffset.UtcNow
+        });
+
+        // Issue new card on the same account (same BIN, same expiry pattern)
+        var newCard = await IssueCardAsync(old.AccountId, old.Bin, Guid.NewGuid().ToString("N")[..16], old.ExpiryYyMm, ct);
+
+        // Bidirectional audit linkage (spec ILB-CL-2-S1)
+        _db.CardStatusHistory.Add(new CardStatusHistoryEntity
+        {
+            Id = Guid.NewGuid(),
+            CardId = old.Id,
+            FromStatus = CardStatus.Cancelled,
+            ToStatus = CardStatus.Cancelled,
+            Reason = $"replaced->{newCard.Id}",
+            ChangedOn = DateTimeOffset.UtcNow
+        });
+        _db.CardStatusHistory.Add(new CardStatusHistoryEntity
+        {
+            Id = Guid.NewGuid(),
+            CardId = newCard.Id,
+            FromStatus = CardStatus.Created,
+            ToStatus = CardStatus.Created,
+            Reason = $"replacement-of:{old.Id}",
+            ChangedOn = DateTimeOffset.UtcNow
+        });
+        await _db.SaveChangesAsync(ct);
+
+        await _audit.WriteAsync("issuer.card.replaced",
+            new { oldCardId = cardId, newCardId = newCard.Id, reason },
+            correlationId: null,
+            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
+            ct: ct);
+
+        return (CardLifecycleError.None, newCard);
+    }
 
     private static string MaskPan(string pan)
     {
