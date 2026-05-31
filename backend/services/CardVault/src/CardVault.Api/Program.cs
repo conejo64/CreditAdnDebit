@@ -15,6 +15,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using CardVault.Api.Services;
+using CardVault.Api.Services.Notifications;
+using CardVault.Api.Services.Notifications.Providers;
 using CardVault.Api.Background;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Api.Pci;
@@ -78,6 +80,16 @@ builder.Services.AddScoped<InstallmentService>();
 builder.Services.AddScoped<PinService>();
 builder.Services.AddScoped<ThreeDsService>();
 builder.Services.AddScoped<NotificationService>();
+// ── Slice 1a: Notification channel abstractions (interfaces, FSM, registry stub) ──
+builder.Services.AddSingleton<IDeliveryStateMachine>(new DeliveryStateMachine());
+// ── Slice 1b: Dispatcher options + provider options ──
+builder.Services.Configure<NotificationDispatcherOptions>(builder.Configuration.GetSection("Notifications:Dispatcher"));
+builder.Services.Configure<TwilioOptions>(builder.Configuration.GetSection("Notifications:Providers:Twilio"));
+builder.Services.Configure<SendGridOptions>(builder.Configuration.GetSection("Notifications:Providers:SendGrid"));
+// Registry wires all registered INotificationProvider implementations.
+// Slice 1b adds TwilioSmsProvider and SendGridEmailProvider as typed HttpClients below.
+builder.Services.AddSingleton<INotificationProviderRegistry>(sp =>
+    new NotificationProviderRegistry(sp.GetServices<INotificationProvider>()));
 builder.Services.AddScoped<OpenBankingService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
