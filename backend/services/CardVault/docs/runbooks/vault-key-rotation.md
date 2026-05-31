@@ -98,6 +98,8 @@ Authorization: Bearer <admin-jwt>
 
 Repeat until `updatedCount` returns `0` (no remaining entries under the old key).
 
+> **Note:** An empty re-encrypt batch (`updatedCount = 0`) produces **no audit row** by design. The outbox audit row is only emitted when at least one record is actually re-encrypted (`updated > 0`). A `noop` batch is a normal steady-state result — it means all vault entries are already encrypted under the active key.
+
 ### 5.2 Monitor Progress
 
 ```http
