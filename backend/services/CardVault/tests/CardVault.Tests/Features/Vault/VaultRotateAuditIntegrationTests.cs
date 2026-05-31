@@ -85,6 +85,11 @@ public sealed class VaultRotateAuditIntegrationTests : IClassFixture<CardVaultWe
         payload.TryGetProperty("rotatedAt", out var rotatedAtProp).Should().BeTrue();
         DateTimeOffset.TryParse(rotatedAtProp.GetString(), out var rotatedAt).Should().BeTrue();
         rotatedAt.Offset.Should().Be(TimeSpan.Zero, because: "timestamps must be UTC");
+        // W-3: spec requires traceId in the VaultKeyRotated payload
+        payload.TryGetProperty("traceId", out var traceIdProp).Should().BeTrue(
+            because: "the spec requires traceId in the VaultKeyRotated outbox payload");
+        traceIdProp.ValueKind.Should().NotBe(System.Text.Json.JsonValueKind.Undefined,
+            because: "traceId property must exist in the audit payload");
     }
 
     [Fact]

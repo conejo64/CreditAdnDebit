@@ -110,15 +110,26 @@ public sealed class TokenVaultService
     
     public async Task<RotateKeyResponse> RotateActiveKeyAsync(string newActiveKeyId, string actor, string? traceId, CancellationToken ct)
     {
-        // Stage the audit outbox row BEFORE SetActiveKeyIdAsync so that both the
-        // settings change and the audit row are committed in the same SaveChangesAsync
-        // call (which is invoked inside SetActiveKeyIdAsync on the shared _db context).
-        // This satisfies the spec requirement: audit is transactional with the state change.
         var rotatedOn = DateTimeOffset.UtcNow;
+
+        // Resolve (or cold-start-create) the VaultSettings singleton first.
+        // On a cold-start path, GetAsync internally calls SaveChangesAsync to create the row.
+        // By calling GetAsync BEFORE staging the outbox row we guarantee the outbox row is
+        // NOT included in that cold-start save — so both the key mutation and the outbox row
+        // can be committed together in a single subsequent SaveChangesAsync, satisfying the
+        // spec atomicity requirement regardless of whether settings pre-existed.
+        var s = await _settings.GetAsync(ct);
+
+        // Mutate the settings entity (tracked by _db) — no save yet.
+        s.ActiveKeyId = newActiveKeyId;
+        s.UpdatedOn   = DateTimeOffset.UtcNow;
+        s.LastReencryptStatus = "rotated";
+
+        // Stage the audit outbox row in the SAME change tracker as the key mutation.
         _db.OutboxMessages.Add(new OutboxMessageEntity
         {
-            Topic      = "sw.cardvault.audit",
-            Key        = "vault",
+            Topic       = "sw.cardvault.audit",
+            Key         = "vault",
             PayloadJson = JsonSerializer.Serialize(new
             {
                 type      = "cardvault.vault.rotate",
@@ -129,8 +140,10 @@ public sealed class TokenVaultService
             })
         });
 
-        var s = await _settings.SetActiveKeyIdAsync(newActiveKeyId, actor, ct);
-        _crypto.SetActiveKeyId(s.ActiveKeyId);
+        // Single SaveChangesAsync: commits the key change and the outbox row atomically.
+        await _db.SaveChangesAsync(ct);
+
+        _crypto.SetActiveKeyId(newActiveKeyId);
 
         return new RotateKeyResponse(_crypto.ActiveKeyId, rotatedOn, actor);
     }
