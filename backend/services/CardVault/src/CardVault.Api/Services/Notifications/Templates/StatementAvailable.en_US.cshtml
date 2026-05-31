@@ -1,0 +1,21 @@
+@model CardVault.Api.Services.Notifications.Templates.TemplateModel
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Statement available</title></head>
+<body>
+<p>Your statement is now available.</p>
+@if (!string.IsNullOrEmpty(Model.MaskedPan))
+{
+    <p>Card: @Model.MaskedPan</p>
+}
+@if (Model.Amount.HasValue)
+{
+    <p>Total balance: <strong>@Model.Amount!.Value.ToString("F2") @Model.CurrencyCode</strong></p>
+}
+@if (Model.Timestamp.HasValue)
+{
+    <p style="color:#888;font-size:0.85em;">Period: @Model.Timestamp.Value.ToString("MMMM yyyy")</p>
+}
+<p>Log in to your app to view the details.</p>
+</body>
+</html>

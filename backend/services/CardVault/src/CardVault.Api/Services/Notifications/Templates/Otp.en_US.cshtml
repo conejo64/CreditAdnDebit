@@ -1,0 +1,14 @@
+@model CardVault.Api.Services.Notifications.Templates.TemplateModel
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Verification code</title></head>
+<body>
+<p>Your verification code is:</p>
+<p style="font-size:2em;font-weight:bold;letter-spacing:0.2em;">@Model.OtpCode</p>
+<p>This code is valid for 5 minutes. Do not share it with anyone.</p>
+@if (Model.Timestamp.HasValue)
+{
+    <p style="color:#888;font-size:0.85em;">Generated: @Model.Timestamp.Value.ToString("MM/dd/yyyy HH:mm") UTC</p>
+}
+</body>
+</html>

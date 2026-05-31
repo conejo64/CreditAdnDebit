@@ -1,0 +1,18 @@
+@model CardVault.Api.Services.Notifications.Templates.TemplateModel
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Security alert</title></head>
+<body>
+<p><strong>Security alert on your account.</strong></p>
+<p>We have detected unusual activity on your account.</p>
+@if (Model.Timestamp.HasValue)
+{
+    <p style="color:#888;font-size:0.85em;">Date and time: @Model.Timestamp.Value.ToString("MM/dd/yyyy HH:mm") UTC</p>
+}
+@if (!string.IsNullOrEmpty(Model.AdditionalData))
+{
+    <p>@Model.AdditionalData</p>
+}
+<p>If this was you, you can ignore this message. Otherwise, contact us immediately.</p>
+</body>
+</html>

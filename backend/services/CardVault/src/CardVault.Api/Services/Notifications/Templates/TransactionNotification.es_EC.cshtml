@@ -1,0 +1,25 @@
+@model CardVault.Api.Services.Notifications.Templates.TemplateModel
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Notificación de transacción</title></head>
+<body>
+<p>Se ha registrado una transacción en tu tarjeta.</p>
+@if (!string.IsNullOrEmpty(Model.MaskedPan))
+{
+    <p>Tarjeta: @Model.MaskedPan</p>
+}
+@if (Model.Amount.HasValue)
+{
+    <p>Monto: <strong>@Model.Amount!.Value.ToString("F2") @Model.CurrencyCode</strong></p>
+}
+@if (!string.IsNullOrEmpty(Model.MaskedMerchant))
+{
+    <p>Comercio: @Model.MaskedMerchant</p>
+}
+@if (Model.Timestamp.HasValue)
+{
+    <p style="color:#888;font-size:0.85em;">Fecha: @Model.Timestamp.Value.ToString("dd/MM/yyyy HH:mm") UTC</p>
+}
+<p>Si no reconoces esta transacción, contáctanos de inmediato.</p>
+</body>
+</html>

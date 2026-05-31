@@ -28,4 +28,15 @@
     <ProjectReference Include="..\..\src\CardVault.Application\CardVault.Application.csproj" />
   </ItemGroup>
 
+  <!-- Copy notification templates to test output so RazorNotificationTemplateRenderer.Create()
+       can locate them via AppContext.BaseDirectory/Services/Notifications/Templates at test time.
+       The test project uses Microsoft.NET.Sdk (not .Web), so .cshtml files here are plain
+       content and are NOT compiled as ASP.NET Core views. -->
+  <ItemGroup>
+    <Content Include="..\..\src\CardVault.Api\Services\Notifications\Templates\*.cshtml">
+      <Link>Services\Notifications\Templates\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
