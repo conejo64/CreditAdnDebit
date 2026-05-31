@@ -22,7 +22,7 @@
 
 ### T-02 — Add `Vault:AdminRateLimit` section to appsettings files
 
-- [ ] **IMPLEMENT (no test needed — config correctness is exercised by T-03/T-04):**
+- [x] **IMPLEMENT (no test needed — config correctness is exercised by T-03/T-04):**
   - `backend/services/CardVault/src/CardVault.Api/appsettings.json`: add `"Vault": { "AdminRateLimit": { "PermitLimit": 20, "WindowSeconds": 60, "QueueLimit": 0 } }` (dev-relaxed defaults).
   - **Create** `backend/services/CardVault/src/CardVault.Api/appsettings.Production.json`: add `"Vault": { "AdminRateLimit": { "PermitLimit": 5, "WindowSeconds": 300, "QueueLimit": 0 } }` (tightened prod values).
   - Add an INFO startup log in `Program.cs` (after rate-limiter registration) emitting the bound limits.
