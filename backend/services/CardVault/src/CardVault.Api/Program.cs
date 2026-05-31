@@ -206,11 +206,24 @@ var app = builder.Build();
     var rlOptions = app.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>>().Value;
     var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CardVault.Startup");
 
-    // Reflect into the internal policy map to verify policy names
+    // Reflect into the internal policy map to verify policy names.
+    // The backing field name is "<PolicyMap>k__BackingField" in .NET 9 / ASP.NET Core 9
+    // (the public PolicyMap property uses a compiler-generated backing field).
+    // If the field is not found (e.g., ASP.NET Core renamed it in a future version),
+    // fail loudly at startup rather than silently skipping the guard — a silent skip
+    // would leave the policy-registration check permanently disabled without any warning.
     var policyMapField = typeof(Microsoft.AspNetCore.RateLimiting.RateLimiterOptions)
-        .GetField("_policyMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        .GetField("_policyMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+        ?? typeof(Microsoft.AspNetCore.RateLimiting.RateLimiterOptions)
+        .GetField("<PolicyMap>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-    if (policyMapField?.GetValue(rlOptions) is System.Collections.IDictionary policyMap)
+    if (policyMapField == null)
+        throw new InvalidOperationException(
+            "Startup assertion failed: could not locate RateLimiterOptions policies via reflection. " +
+            "ASP.NET Core may have renamed or removed this internal field. " +
+            "Update Program.cs startup guard to use the new field name.");
+
+    if (policyMapField.GetValue(rlOptions) is System.Collections.IDictionary policyMap)
     {
         if (!policyMap.Contains("vault_detokenize"))
             throw new InvalidOperationException(

@@ -62,8 +62,16 @@ public sealed class AnalyticsService
             .Where(x => x.Status == StatementStatus.Open)
             .SumAsync(x => (decimal?)x.NewBalance, ct) ?? 0m;
 
+        var openDisputeStatuses = new[]
+        {
+            BillingDisputeStatus.Open,
+            BillingDisputeStatus.Representment,
+            BillingDisputeStatus.PreArbitration,
+            BillingDisputeStatus.Arbitration
+        };
+
         var openDisputes = await _db.DisputeCases.AsNoTracking()
-            .Where(x => IsOpenDisputeStatus(x.Status))
+            .Where(x => openDisputeStatuses.Contains(x.Status))
             .ToListAsync(ct);
 
         return new AnalyticsPortfolioSummaryView(
@@ -157,6 +165,14 @@ public sealed class AnalyticsService
     {
         var (fromDate, toDate, cutoff) = BuildWindow(days);
 
+        var openDisputeStatuses = new[]
+        {
+            BillingDisputeStatus.Open,
+            BillingDisputeStatus.Representment,
+            BillingDisputeStatus.PreArbitration,
+            BillingDisputeStatus.Arbitration
+        };
+
         var disputes = await _db.DisputeCases
             .AsNoTracking()
             .Where(x => x.OpenedOn >= cutoff)
@@ -167,11 +183,11 @@ public sealed class AnalyticsService
             .CountAsync(x => x.PostedOn >= cutoff && x.TxnType == SwitchTxnType.Purchase, ct);
 
         var totalCases = disputes.Count;
-        var openCases = disputes.Count(x => IsOpenDisputeStatus(x.Status));
+        var openCases = disputes.Count(x => openDisputeStatuses.Contains(x.Status));
         var wonCases = disputes.Count(x => x.Status == BillingDisputeStatus.Won);
         var lostCases = disputes.Count(x => x.Status == BillingDisputeStatus.Lost);
         var totalExposure = disputes.Sum(x => Math.Abs(x.Amount));
-        var openExposure = disputes.Where(x => IsOpenDisputeStatus(x.Status)).Sum(x => Math.Abs(x.Amount));
+        var openExposure = disputes.Where(x => openDisputeStatuses.Contains(x.Status)).Sum(x => Math.Abs(x.Amount));
         var casesPerThousandPurchases = purchaseCount == 0 ? 0m : (decimal)totalCases * 1000m / purchaseCount;
 
         var networkBreakdown = BuildBreakdown(
@@ -262,9 +278,6 @@ public sealed class AnalyticsService
 
     private static int NormalizeDays(int days, int fallback)
         => days <= 0 ? fallback : Math.Min(days, 365);
-
-    private static bool IsOpenDisputeStatus(BillingDisputeStatus status)
-        => status is BillingDisputeStatus.Open or BillingDisputeStatus.Representment or BillingDisputeStatus.PreArbitration or BillingDisputeStatus.Arbitration;
 
     private sealed record BreakdownSeed(string Key, decimal Amount, int Count, decimal GrossAmount);
     private sealed record ConsumptionLedgerRow(Guid AccountId, LedgerEntryType Type, decimal Amount, DateTimeOffset PostedOn);
