@@ -17,6 +17,7 @@ using Serilog;
 using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Providers;
+using CardVault.Api.Services.Notifications.Templates;
 using CardVault.Api.Background;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Api.Pci;
@@ -86,10 +87,30 @@ builder.Services.AddSingleton<IDeliveryStateMachine>(new DeliveryStateMachine())
 builder.Services.Configure<NotificationDispatcherOptions>(builder.Configuration.GetSection("Notifications:Dispatcher"));
 builder.Services.Configure<TwilioOptions>(builder.Configuration.GetSection("Notifications:Providers:Twilio"));
 builder.Services.Configure<SendGridOptions>(builder.Configuration.GetSection("Notifications:Providers:SendGrid"));
-// Registry wires all registered INotificationProvider implementations.
-// Slice 1b adds TwilioSmsProvider and SendGridEmailProvider as typed HttpClients below.
+// ── Slice 1b: SendGrid email provider (typed HttpClient) ──
+builder.Services.AddSingleton<IApiKeyProvider, EnvironmentSendGridApiKeyProvider>();
+builder.Services.AddHttpClient<SendGridEmailProvider>(client =>
+{
+    client.BaseAddress = new Uri("https://api.sendgrid.com");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<INotificationProvider>(sp =>
+    sp.GetRequiredService<SendGridEmailProvider>());
+// ── Slice 1b: Twilio SMS provider (typed HttpClient) ──
+builder.Services.AddSingleton<ITwilioAuthTokenProvider, EnvironmentTwilioAuthTokenProvider>();
+builder.Services.AddHttpClient<TwilioSmsProvider>(client =>
+{
+    client.BaseAddress = new Uri("https://api.twilio.com");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<INotificationProvider>(sp =>
+    sp.GetRequiredService<TwilioSmsProvider>());
+// Registry wires all registered INotificationProvider implementations (SendGrid + Twilio from 1b).
 builder.Services.AddSingleton<INotificationProviderRegistry>(sp =>
     new NotificationProviderRegistry(sp.GetServices<INotificationProvider>()));
+// ── Slice 1c: Razor template renderer + PCI guard ──
+builder.Services.AddSingleton<PciTemplateGuard>();
+builder.Services.AddScoped<INotificationTemplateRenderer>(_ => RazorNotificationTemplateRenderer.Create());
 builder.Services.AddScoped<OpenBankingService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
