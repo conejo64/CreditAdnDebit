@@ -1,0 +1,77 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+
+namespace CardVault.Api.Services.Notifications.Webhooks;
+
+/// <summary>
+/// Validates inbound Movistar Ecuador webhook requests using HMAC-SHA256.
+/// <para>
+/// Algorithm: <c>HMAC-SHA256(WebhookSecret, rawBody)</c>, hex-encoded (lower or upper case),
+/// carried in the <c>X-Movistar-Signature</c> header.
+/// Replay guard: <c>X-Movistar-Timestamp</c> (Unix epoch seconds) must be within 5 minutes.
+/// All comparisons are constant-time.
+/// </para>
+/// </summary>
+public sealed class MovistarWebhookSignatureValidator : IWebhookSignatureValidator
+{
+    private readonly MovistarWebhookOptions _options;
+    private readonly Func<DateTimeOffset> _clock;
+
+    /// <inheritdoc />
+    public string ProviderId => "movistar-ec";
+
+    /// <summary>
+    /// Constructs the validator.
+    /// </summary>
+    /// <param name="options">Movistar webhook options (WebhookSecret).</param>
+    /// <param name="clock">Clock factory for testable replay detection. Defaults to <see cref="DateTimeOffset.UtcNow"/>.</param>
+    public MovistarWebhookSignatureValidator(
+        IOptions<MovistarWebhookOptions> options,
+        Func<DateTimeOffset>? clock = null)
+    {
+        _options = options.Value;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    /// <inheritdoc />
+    public bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
+    {
+        // 1. Missing signature → reject
+        if (!request.Headers.TryGetValue("X-Movistar-Signature", out var sigHeader) ||
+            string.IsNullOrEmpty(sigHeader))
+            return false;
+
+        // 2. Replay guard via timestamp header
+        if (!request.Headers.TryGetValue("X-Movistar-Timestamp", out var tsHeader) ||
+            !long.TryParse(tsHeader, out var epochSeconds))
+            return false;
+
+        var timestamp = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+        if (!WebhookValidatorHelper.IsWithinReplayWindow(timestamp, _clock()))
+            return false;
+
+        // 3. Compute expected HMAC-SHA256 over the raw body
+        var key = Encoding.UTF8.GetBytes(_options.WebhookSecret);
+        var expectedHmac = HMACSHA256.HashData(key, rawBody);
+        var expectedHex = Convert.ToHexString(expectedHmac); // returns uppercase
+
+        // 4. Normalize incoming signature to uppercase for comparison
+        var actualHex = sigHeader.ToString().ToUpperInvariant();
+        var expectedHexUpper = expectedHex; // already uppercase from Convert.ToHexString
+
+        // 5. Constant-time comparison (compare as UTF-8 bytes)
+        var actualBytes = Encoding.ASCII.GetBytes(actualHex);
+        var expectedBytes = Encoding.ASCII.GetBytes(expectedHexUpper);
+
+        if (actualBytes.Length != expectedBytes.Length)
+        {
+            // Dummy comparison to prevent length-based timing oracle
+            CryptographicOperations.FixedTimeEquals(actualBytes, actualBytes);
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+    }
+}

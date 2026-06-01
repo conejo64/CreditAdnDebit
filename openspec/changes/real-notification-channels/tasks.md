@@ -278,17 +278,18 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
 **Goal**: `POST /api/notifications/delivery-callback/{providerId}`. HMAC (Twilio), ECDSA (SendGrid), HMAC-SHA256 (Movistar EC). Depends on 1b and 1d.
 
 ### Task 1e.1 — IWebhookSignatureValidator + per-provider implementations
-- [ ] Write failing unit tests (known secrets + pre-computed signatures — NEVER call real providers):
+- [x] Write failing unit tests (known secrets + pre-computed signatures — NEVER call real providers):
   - **Twilio**: HMAC-SHA1(AuthToken, fullUrl + sorted params); positive, missing header → fail, tampered → fail, replay (timestamp > 5 min old) → fail
   - **SendGrid**: ECDSA public-key over `timestamp + rawBody` (`X-Twilio-Email-Event-Webhook-Signature` + Timestamp header); positive, invalid sig → fail, replay → fail
   - **Movistar EC**: HMAC-SHA256(WebhookSecret, rawBody), header `X-Movistar-Signature`; same positive/negative/replay coverage
   - All validators: constant-time comparison (verify no timing leak assertion in test description)
   - File: `CardVault.Tests/Features/Notifications/Webhooks/WebhookSignatureValidatorTests.cs`
-- [ ] Create `CardVault.Api/Services/Notifications/Webhooks/IWebhookSignatureValidator.cs`
-- [ ] Create `TwilioWebhookSignatureValidator.cs`, `SendGridWebhookSignatureValidator.cs`, `MovistarWebhookSignatureValidator.cs`
+- [x] Create `CardVault.Api/Services/Notifications/Webhooks/IWebhookSignatureValidator.cs` (already defined in `INotificationProvider.cs` from Slice 1a)
+- [x] Create `TwilioWebhookSignatureValidator.cs`, `SendGridWebhookSignatureValidator.cs`, `MovistarWebhookSignatureValidator.cs`
   - Each reads its secret from `IOptions<T>` bound to env vars (not appsettings)
   - Replay guard: compare timestamp header vs `DateTimeOffset.UtcNow - 5min`
-- [ ] Tests pass
+  - Shared `WebhookValidatorHelper.IsWithinReplayWindow` (DRY, boundary at < 300s)
+- [x] Tests pass (27 new tests: 8 Twilio + 8 SendGrid + 11 Movistar; 540 total suite, 0 failures)
 - **Spec ref**: Design §8 (Webhook signature schemes table), Spec "Inbound Delivery Callbacks" requirement — NOTE: SendGrid uses ECDSA not HMAC
 
 ### Task 1e.2 — Webhook endpoint + rate-limit policy + audit events
