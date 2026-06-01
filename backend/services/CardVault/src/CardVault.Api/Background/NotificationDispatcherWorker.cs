@@ -1,4 +1,4 @@
-using CardVault.Api.Services;
+using CardVault.Api.Services.Notifications;
 
 namespace CardVault.Api.Background;
 
@@ -22,8 +22,8 @@ public sealed class NotificationDispatcherWorker : BackgroundService
             try
             {
                 using var scope = _sp.CreateScope();
-                var service = scope.ServiceProvider.GetRequiredService<NotificationService>();
-                await service.DispatchPendingDeliveriesAsync(50, stoppingToken);
+                var dispatcher = scope.ServiceProvider.GetRequiredService<INotificationDispatcher>();
+                await dispatcher.DispatchBatchAsync(50, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -34,7 +34,9 @@ public sealed class NotificationDispatcherWorker : BackgroundService
                 _logger.LogError(ex, "Notification dispatcher loop failed.");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            if (stoppingToken.IsCancellationRequested) break;
+            try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 }

@@ -22,7 +22,7 @@ public sealed class FakeNotificationProvider : INotificationProvider
     private readonly List<NotificationSendRequest> _calls = new();
 
     /// <inheritdoc />
-    public string ProviderId => "fake";
+    public string ProviderId { get; }
 
     /// <inheritdoc />
     public NotificationChannel Channel { get; }
@@ -31,7 +31,7 @@ public sealed class FakeNotificationProvider : INotificationProvider
     public IReadOnlyList<NotificationSendRequest> Calls => _calls;
 
     /// <summary>
-    /// Creates a fake provider for the given channel.
+    /// Creates a fake provider with ProviderId="fake" for the given channel.
     /// </summary>
     /// <param name="channel">Channel this provider handles.</param>
     /// <param name="outcomes">
@@ -39,8 +39,21 @@ public sealed class FakeNotificationProvider : INotificationProvider
     /// When exhausted, falls back to <see cref="ProviderOutcome.Accepted"/>.
     /// </param>
     public FakeNotificationProvider(NotificationChannel channel, params ProviderOutcome[] outcomes)
+        : this(channel, "fake", outcomes) { }
+
+    /// <summary>
+    /// Creates a named fake provider for fallback chain tests.
+    /// </summary>
+    /// <param name="channel">Channel this provider handles.</param>
+    /// <param name="providerId">Provider identifier returned by <see cref="ProviderId"/>.</param>
+    /// <param name="outcomes">
+    /// Ordered outcomes to return (one per <see cref="SendAsync"/> call).
+    /// When exhausted, falls back to <see cref="ProviderOutcome.Accepted"/>.
+    /// </param>
+    public FakeNotificationProvider(NotificationChannel channel, string providerId, params ProviderOutcome[] outcomes)
     {
         Channel = channel;
+        ProviderId = providerId;
         _outcomeQueue = new Queue<ProviderOutcome>(outcomes);
     }
 

@@ -152,6 +152,7 @@
 
 - Existen tests backend para `RiskDecisionService`, `HoldService` y handlers ISO críticos, por lo que ya no corresponde afirmar que no hay validación automatizada del sprint.
 - La cobertura dedicada del flujo `3DS` (`EcommerceThreeDsController` / `ThreeDsService`) sigue faltando, así que `v70` permanece parcialmente verificable.
+- **PCI-DSS Compliance:** `fix-vault-rotation-policy` archivado 2026-05-30 — registró `vault_admin_ops` rate-limit policy, agregó auditoría transaccional de rotación de claves, y 288 tests green. Cierra brecha normativa PCI-DSS 3.6.4 y Superintendencia de Bancos del Ecuador Resolución JB-2014-3066.
 
 ---
 

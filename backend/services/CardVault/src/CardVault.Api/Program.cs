@@ -231,6 +231,8 @@ builder.Services.AddHostedService<EfOutboxPublisher>();
 builder.Services.AddHostedService<SwitchTxnConsumer>();
 builder.Services.AddHostedService<CardVault.Api.Background.HoldExpiryWorker>();
 builder.Services.AddHostedService<CardVault.Api.Background.NotificationDispatcherWorker>();
+builder.Services.AddScoped<CardVault.Api.Services.Notifications.INotificationDispatcher,
+    CardVault.Api.Services.Notifications.NotificationDispatcher>();
 builder.Services.AddHostedService<CardVault.Api.Background.DelinquencyEvaluationWorker>();
 var app = builder.Build();
 

@@ -425,8 +425,20 @@ public sealed class CardVaultDbContext : DbContext
             b.Property(x => x.DestinationHash).HasMaxLength(256).IsRequired();
             b.Property(x => x.ProviderReference).HasMaxLength(128);
             b.Property(x => x.LastError).HasMaxLength(256);
-            b.HasIndex(x => new { x.Status, x.CreatedOn });
-            b.HasIndex(x => new { x.NotificationId, x.Channel }).IsUnique();
+            // Slice 1d: new column constraints
+            b.Property(x => x.ProviderId).HasMaxLength(32);
+            // Existing indexes (preserved — do NOT remove)
+            b.HasIndex(x => new { x.Status, x.CreatedOn })
+                .HasDatabaseName("IX_CustomerNotificationDeliveries_Status_CreatedOn");
+            b.HasIndex(x => new { x.NotificationId, x.Channel }).IsUnique()
+                .HasDatabaseName("IX_CustomerNotificationDeliveries_NotificationId_Channel");
+            // Slice 1d: new indexes for claim query, crash sweep, and tenant routing
+            b.HasIndex(x => new { x.Status, x.NextAttemptOn })
+                .HasDatabaseName("IX_CustomerNotificationDeliveries_Status_NextAttemptOn");
+            b.HasIndex(x => new { x.Status, x.SendingStartedOn })
+                .HasDatabaseName("IX_CustomerNotificationDeliveries_Status_SendingStartedOn");
+            b.HasIndex(x => x.TenantId)
+                .HasDatabaseName("IX_CustomerNotificationDeliveries_TenantId");
         });
 
         // v73 - Open Banking
