@@ -207,25 +207,25 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
 **Goal**: End-to-end dispatch. Replaces the simulator. Depends on 1a, 1b, 1c. This is the core of the change.
 
 ### Task 1d.1 — EF entity delta + migration AddRealNotificationChannels
-- [ ] Write failing tests:
+- [x] Write failing tests:
   - `CustomerNotificationDeliveryEntity` has properties `NextAttemptOn (DateTimeOffset?)`, `SendingStartedOn (DateTimeOffset?)`, `ProviderId (string? max 32)`, `TenantId (Guid)`
   - EF config: `ProviderId` HasMaxLength(32); indexes `(Status, NextAttemptOn)`, `(Status, SendingStartedOn)`, `(TenantId)` added; existing indexes unchanged
   - Migration `AddRealNotificationChannels` has a `Down` that maps `Sending(4)→Pending(1)` and `DeadLetter(5)→Failed(3)` before dropping columns
   - File: `CardVault.Tests/Features/Notifications/Persistence/NotificationDeliveryEntityTests.cs`
-- [ ] Add 4 new properties to `CustomerNotificationDeliveryEntity.cs` (do NOT remove or rename existing properties)
-- [ ] Add EF configuration to `CardVaultDbContext` or a separate `IEntityTypeConfiguration` for the delivery entity:
+- [x] Add 4 new properties to `CustomerNotificationDeliveryEntity.cs` (do NOT remove or rename existing properties)
+- [x] Add EF configuration to `CardVaultDbContext` or a separate `IEntityTypeConfiguration` for the delivery entity:
   - `ProviderId.HasMaxLength(32)`
   - `.HasIndex(e => new { e.Status, e.NextAttemptOn }).HasDatabaseName("IX_CustomerNotificationDeliveries_Status_NextAttemptOn")`
   - `.HasIndex(e => new { e.Status, e.SendingStartedOn }).HasDatabaseName("IX_CustomerNotificationDeliveries_Status_SendingStartedOn")`
   - `.HasIndex(e => e.TenantId).HasDatabaseName("IX_CustomerNotificationDeliveries_TenantId")`
   - Keep existing `IX_(Status, CreatedOn)` and unique `IX_(NotificationId, Channel)`
-- [ ] Run `dotnet ef migrations add AddRealNotificationChannels` and write the manual `Down` data migration
-- [ ] Add `TenantId` backfill comment in migration (single-tenant: use config default or `Guid.Empty` — document clearly)
-- [ ] Tests pass (EF model validation test, not an actual DB test)
+- [x] Run `dotnet ef migrations add AddRealNotificationChannels` and write the manual `Down` data migration
+- [x] Add `TenantId` backfill comment in migration (single-tenant: use config default or `Guid.Empty` — document clearly)
+- [x] Tests pass (EF model validation test, not an actual DB test)
 - **Spec ref**: Design §4 (EF Schema Delta)
 
 ### Task 1d.2 — INotificationDispatcher: claim + FSM + audit events
-- [ ] Write failing tests with `FakeNotificationProvider` + fake clock + in-memory DB:
+- [x] Write failing tests with `FakeNotificationProvider` + fake clock + in-memory DB:
   - `DispatchBatchAsync` picks `Pending` rows and transitions to `Sending` BEFORE provider call (persisted)
   - On `Accepted`: transitions to `Sent`, sets `ProviderId`, `ProviderReference`, clears `SendingStartedOn`
   - On `TransientFailure` + `Attempts < MaxAttempts`: transitions to `Failed`, sets `NextAttemptOn` (30s ±10% for attempt 1)
@@ -235,7 +235,7 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
   - `RealProvidersEnabled = false` → dispatcher returns 0 dispatched (no-op, rows stay `Pending`)
   - PCI events emitted: `pci.notification.send-attempt` before provider call; `pci.notification.send-result` after; `pci.notification.deadletter` on DeadLetter
   - File: `CardVault.Tests/Features/Notifications/Dispatcher/NotificationDispatcherTests.cs`
-- [ ] Create `CardVault.Api/Services/Notifications/NotificationDispatcher.cs` implementing `INotificationDispatcher`
+- [x] Create `CardVault.Api/Services/Notifications/NotificationDispatcher.cs` implementing `INotificationDispatcher`
   - Scoped lifetime (scope-per-tick from worker)
   - Injects: `CardVaultDbContext`, `INotificationProviderRegistry`, `IDeliveryStateMachine`, `INotificationTemplateRenderer`, `PciAuditPublisher`, `ILogger`, `IOptions<NotificationDispatcherOptions>`, `IEventBus`
   - Claim query: `Status == Pending OR (Status == Failed AND NextAttemptOn <= now AND Attempts < MaxAttempts) OR (Status == Sending AND SendingStartedOn < now - LockTtl)`
@@ -244,31 +244,31 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
   - Outbox event: `cv.notification.deadletter` on DeadLetter transition
   - Keep existing `cv.customer.notification.delivered` outbox event on `Sent`
   - Keep existing `pci.notification.delivered` event (back-compat; ADD new events alongside it — ADR-9)
-- [ ] Tests pass (all fault-injection scenarios green)
+- [x] Tests pass (all fault-injection scenarios green)
 - **Spec ref**: Design §1 (Layering), §5 (Retry/Backoff), §11 (Audit/Outbox), §12 (Slice 1), Spec all dispatcher scenarios
 
 ### Task 1d.3 — NotificationDispatcherWorker body swap
-- [ ] Write failing test: worker creates scope per tick, calls `INotificationDispatcher.DispatchBatchAsync(50, ct)`, NOT `NotificationService.DispatchPendingDeliveriesAsync`
+- [x] Write failing test: worker creates scope per tick, calls `INotificationDispatcher.DispatchBatchAsync(50, ct)`, NOT `NotificationService.DispatchPendingDeliveriesAsync`
   - File: `CardVault.Tests/Features/Notifications/Dispatcher/NotificationDispatcherWorkerTests.cs`
-- [ ] Modify `CardVault.Api/Background/NotificationDispatcherWorker.cs`:
+- [x] Modify `CardVault.Api/Background/NotificationDispatcherWorker.cs`:
   - Resolve `INotificationDispatcher` from scope (not `NotificationService`)
   - Call `dispatcher.DispatchBatchAsync(50, stoppingToken)`
   - Worker loop and 5s delay unchanged
-- [ ] Modify `CardVault.Api/Services/NotificationService.cs`:
+- [x] Modify `CardVault.Api/Services/NotificationService.cs`:
   - Remove simulator body from `DispatchPendingDeliveriesAsync` (lines 92-158 simulator logic)
   - The method can become a thin wrapper or be removed entirely (prefer removal; adjust any remaining callers)
-- [ ] Register `INotificationDispatcher` as scoped in Program.cs
-- [ ] Tests pass; `dotnet build` clean
+- [x] Register `INotificationDispatcher` as scoped in Program.cs
+- [x] Tests pass; `dotnet build` clean
 - **Spec ref**: Design §4 ("Worker is a 5s Task.Delay loop...rewrite moves real dispatch into INotificationDispatcher"), Spec "Simulator references are rejected in production"
 
 ### Task 1d.4 — Fallback chain accounting unit tests
-- [ ] Write failing tests (shared-budget, not per-provider):
+- [x] Write failing tests (shared-budget, not per-provider):
   - Movistar fail (Attempts: 1→2→3) → chain advances to Twilio with budget spent → Twilio gets ONE attempt → if Twilio fails → DeadLetter
   - Twilio succeeds after Movistar fail → Sent, `ProviderId = "twilio"`
   - Use `FakeNotificationProvider` with outcome queues: [Transient, Transient, Transient] for Movistar, [Accepted] for Twilio
   - File: `CardVault.Tests/Features/Notifications/Dispatcher/ProviderFallbackAccountingTests.cs`
-- [ ] Ensure `NotificationDispatcher` correctly advances through provider chain on Transient failures using the shared `Attempts` counter (no per-provider reset)
-- [ ] Tests pass
+- [x] Ensure `NotificationDispatcher` correctly advances through provider chain on Transient failures using the shared `Attempts` counter (no per-provider reset)
+- [x] Tests pass
 - **Spec ref**: Design §7 (Fallback Accounting — "MaxAttempts=3 SHARED across entire chain"), §6 (Dispatcher precedence)
 
 ---
