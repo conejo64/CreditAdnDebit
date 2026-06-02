@@ -16,6 +16,7 @@ internal static class WebhookValidatorHelper
     internal static bool IsWithinReplayWindow(DateTimeOffset requestTimestamp, DateTimeOffset now)
     {
         var ageSeconds = (now - requestTimestamp).TotalSeconds;
-        return ageSeconds < ReplayWindowSeconds;
+        // Both bounds: reject future-dated timestamps (negative age) AND stale timestamps (>= 300s).
+        return ageSeconds >= 0 && ageSeconds < ReplayWindowSeconds;
     }
 }

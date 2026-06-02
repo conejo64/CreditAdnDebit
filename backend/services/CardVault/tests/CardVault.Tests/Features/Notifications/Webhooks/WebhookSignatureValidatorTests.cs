@@ -210,6 +210,73 @@ public sealed class WebhookSignatureValidatorTests
         }
 
         [Fact]
+        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        {
+            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
+            // Before the fix, ageSeconds is negative and negative < 300 is TRUE (accept).
+            // After the fix, ageSeconds >= 0 is required — so this must return false.
+            var futureTimestamp = FrozenNow.AddMinutes(10);
+            var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
+            var request = BuildRequest(expected, futureTimestamp);
+
+            var validator = CreateValidator(FrozenNow);
+            var result = validator.Validate(request, Array.Empty<byte>());
+
+            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+        }
+
+        [Fact]
+        public void Validate_MissingTimestampHeader_ReturnsFalse()
+        {
+            // SUGG-2: explicit test for missing timestamp-only path.
+            var body = Array.Empty<byte>();
+            var sig = ComputeExpectedSignature(AuthToken, WebhookUrl);
+
+            var context = new DefaultHttpContext();
+            var request = context.Request;
+            request.Headers["X-Twilio-Signature"] = sig;
+            // X-Twilio-Timestamp intentionally absent
+
+            var validator = CreateValidator();
+            var result = validator.Validate(request, body);
+
+            result.Should().BeFalse("a missing timestamp header must be rejected");
+        }
+
+        [Fact]
+        public void Validate_MultiValueParamSortedAlphabetically_ReturnsTrue()
+        {
+            // WARN-1: Twilio's documented algorithm for multi-value params:
+            // values for a given key must be sorted alphabetically and concatenated.
+            // The request arrives with values in insertion order ["zebra", "apple"];
+            // the signature must be computed over the sorted order ["apple", "zebra"].
+            const string multiKey = "Status";
+            // Twilio expects values sorted: apple, zebra → concatenated as "applezebra"
+            var paramString = multiKey + "applezebra"; // sorted concat
+            var data = Encoding.UTF8.GetBytes(WebhookUrl + paramString);
+            var key = Encoding.UTF8.GetBytes(AuthToken);
+            var hmac = HMACSHA1.HashData(key, data);
+            var expectedSig = Convert.ToBase64String(hmac);
+
+            // Build request with multi-value in insertion order ["zebra", "apple"]
+            var context = new DefaultHttpContext();
+            var req = context.Request;
+            req.Method = "POST";
+            req.ContentType = "application/x-www-form-urlencoded";
+            req.Headers["X-Twilio-Signature"] = expectedSig;
+            req.Headers["X-Twilio-Timestamp"] = RecentTimestamp.ToUnixTimeSeconds().ToString();
+            req.Form = new FormCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+            {
+                [multiKey] = new Microsoft.Extensions.Primitives.StringValues(new[] { "zebra", "apple" })
+            });
+
+            var validator = CreateValidator(FrozenNow);
+            var result = validator.Validate(req, Array.Empty<byte>());
+
+            result.Should().BeTrue("multi-value params must be sorted alphabetically before HMAC");
+        }
+
+        [Fact]
         public void ProviderId_IstwilioLowercase()
         {
             var validator = CreateValidator();
@@ -393,6 +460,22 @@ public sealed class WebhookSignatureValidatorTests
         }
 
         [Fact]
+        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        {
+            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
+            var body = MakeBody();
+            var futureTimestamp = FrozenNow.AddMinutes(10);
+            var timestampStr = futureTimestamp.ToUnixTimeSeconds().ToString();
+            var sig = ComputeExpectedSignature(timestampStr, body);
+            var request = BuildRequest(sig, timestampStr);
+
+            var validator = CreateValidator(FrozenNow);
+            var result = validator.Validate(request, body);
+
+            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+        }
+
+        [Fact]
         public void ProviderId_IssendgridLowercase()
         {
             var validator = CreateValidator();
@@ -552,6 +635,39 @@ public sealed class WebhookSignatureValidatorTests
             var result = validator.Validate(request, body);
 
             result.Should().BeTrue();
+        }
+
+        [Fact]
+        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        {
+            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
+            var body = MakeBody();
+            var sig = ComputeExpectedSignature(WebhookSecret, body);
+            var futureTimestamp = FrozenNow.AddMinutes(10);
+            var request = BuildRequest(sig, futureTimestamp);
+
+            var validator = CreateValidator(FrozenNow);
+            var result = validator.Validate(request, body);
+
+            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+        }
+
+        [Fact]
+        public void Validate_MissingTimestampHeader_ReturnsFalse()
+        {
+            // SUGG-2: explicit test for missing timestamp-only path.
+            var body = MakeBody();
+            var sig = ComputeExpectedSignature(WebhookSecret, body);
+
+            var context = new DefaultHttpContext();
+            var request = context.Request;
+            request.Headers["X-Movistar-Signature"] = sig;
+            // X-Movistar-Timestamp intentionally absent
+
+            var validator = CreateValidator();
+            var result = validator.Validate(request, body);
+
+            result.Should().BeFalse("a missing timestamp header must be rejected");
         }
 
         [Fact]

@@ -90,10 +90,13 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
             if (form.Count == 0)
                 return string.Empty;
 
+            // Per Twilio docs: for multi-value params, values must be sorted alphabetically
+            // and concatenated (not comma-separated). StringValues.ToString() uses insertion
+            // order — we must sort explicitly to match the documented signing algorithm.
             return string.Concat(
                 form
                     .OrderBy(kv => kv.Key, StringComparer.Ordinal)
-                    .Select(kv => kv.Key + kv.Value.ToString()));
+                    .Select(kv => kv.Key + string.Concat(kv.Value.OrderBy(v => v, StringComparer.Ordinal))));
         }
         catch
         {
