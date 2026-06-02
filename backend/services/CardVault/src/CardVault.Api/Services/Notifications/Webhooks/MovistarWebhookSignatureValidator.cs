@@ -67,8 +67,9 @@ public sealed class MovistarWebhookSignatureValidator : IWebhookSignatureValidat
 
         if (actualBytes.Length != expectedBytes.Length)
         {
-            // Dummy comparison to prevent length-based timing oracle
-            CryptographicOperations.FixedTimeEquals(actualBytes, actualBytes);
+            // WARN-2: dummy comparison uses expectedBytes in both args so timing is
+            // independent of the attacker-supplied input length (not actualBytes).
+            CryptographicOperations.FixedTimeEquals(expectedBytes, expectedBytes);
             return false;
         }
 

@@ -52,8 +52,18 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
         if (!WebhookValidatorHelper.IsWithinReplayWindow(timestamp, _clock()))
             return false;
 
-        // 3. Compute expected signature
-        var paramString = BuildSortedParamString(request);
+        // 3. Compute expected signature — fail closed if form reading throws
+        string paramString;
+        try
+        {
+            paramString = BuildSortedParamString(request);
+        }
+        catch (InvalidOperationException)
+        {
+            // WARN-3: form collection access failed (e.g. body not yet read or content-type
+            // mismatch). Do not swallow silently in a security path — fail closed.
+            return false;
+        }
         var data = Encoding.UTF8.GetBytes(_options.WebhookUrl + paramString);
         var key = Encoding.UTF8.GetBytes(_options.AuthToken);
         var expectedHmac = HMACSHA1.HashData(key, data);
@@ -65,8 +75,9 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
 
         if (actualBytes.Length != expectedBytes.Length)
         {
-            // Run dummy comparison to avoid length-based timing leak
-            CryptographicOperations.FixedTimeEquals(actualBytes, actualBytes);
+            // WARN-2: dummy comparison must use expectedBytes (not actualBytes) in both
+            // arguments so timing is independent of the attacker-supplied input length.
+            CryptographicOperations.FixedTimeEquals(expectedBytes, expectedBytes);
             return false;
         }
 
@@ -83,24 +94,19 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
             return string.Empty;
 
         // Read form values synchronously — IFormCollection is already loaded at this point
-        // (middleware must have read the body before calling this validator)
-        try
-        {
-            var form = request.Form;
-            if (form.Count == 0)
-                return string.Empty;
-
-            // Per Twilio docs: for multi-value params, values must be sorted alphabetically
-            // and concatenated (not comma-separated). StringValues.ToString() uses insertion
-            // order — we must sort explicitly to match the documented signing algorithm.
-            return string.Concat(
-                form
-                    .OrderBy(kv => kv.Key, StringComparer.Ordinal)
-                    .Select(kv => kv.Key + string.Concat(kv.Value.OrderBy(v => v, StringComparer.Ordinal))));
-        }
-        catch
-        {
+        // (middleware must have read the body before calling this validator).
+        // WARN-3: do not catch broadly here; let InvalidOperationException propagate to
+        // the caller which handles it as a closed failure (return false in Validate).
+        var form = request.Form;
+        if (form.Count == 0)
             return string.Empty;
-        }
+
+        // Per Twilio docs: for multi-value params, values must be sorted alphabetically
+        // and concatenated (not comma-separated). StringValues.ToString() uses insertion
+        // order — we must sort explicitly to match the documented signing algorithm.
+        return string.Concat(
+            form
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => kv.Key + string.Concat(kv.Value.OrderBy(v => v, StringComparer.Ordinal))));
     }
 }
