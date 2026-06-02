@@ -106,5 +106,60 @@ This is deferred to Task 1e.2 (endpoint), which also registers the rate-limit po
 
 ---
 
-## Status: COMPLETE
-Task 1e.1 is fully implemented. Next: Task 1e.2 (webhook endpoint + rate-limit) — separate PR.
+---
+
+## Hardening Cycle — Slice 1e.1 (verify findings) — 2026-06-02
+
+### RED Phase
+Added 6 new tests before any production change:
+- `Validate_FutureDatedTimestamp_ReturnsFalse` × 3 (Twilio, SendGrid, Movistar) — CRIT-1
+- `Validate_MultiValueParamSortedAlphabetically_ReturnsTrue` (Twilio) — WARN-1
+- `Validate_MissingTimestampHeader_ReturnsFalse` × 2 (Twilio, Movistar) — SUGG-2
+
+Confirmed RED: 3 FutureDated tests failed (accepted future timestamps); 1 MultiValue test
+failed (insertion-order concat didn't match sorted-value concat). MissingTimestamp tests
+already passed (existing guard fires first when both headers absent — coverage gap closed).
+
+### GREEN Phase
+
+**CRIT-1** (`WebhookValidatorHelper.cs:19`):
+Changed `ageSeconds < ReplayWindowSeconds` → `ageSeconds >= 0 && ageSeconds < ReplayWindowSeconds`.
+All 3 FutureDated tests went GREEN. All 27 existing replay/boundary tests stayed GREEN.
+
+**WARN-1** (`TwilioWebhookSignatureValidator.cs` — `BuildSortedParamString`):
+Changed `kv.Value.ToString()` → `string.Concat(kv.Value.OrderBy(v => v, StringComparer.Ordinal))`.
+MultiValue test went GREEN. Existing single-value tests stayed GREEN.
+
+**WARN-2** (Twilio + Movistar):
+Dummy `FixedTimeEquals(actualBytes, actualBytes)` → `FixedTimeEquals(expectedBytes, expectedBytes)`.
+Behavioral parity — no test change needed; covered by existing tests.
+
+**WARN-3** (Twilio `BuildSortedParamString`):
+Removed bare `catch {}` that returned `string.Empty`. Now `InvalidOperationException` propagates
+to `Validate()` which catches it specifically and returns `false` (fail-closed).
+
+**WARN-4** (`SendGridWebhookSignatureValidator`):
+Replaced per-request PEM parse + `ECDsa.Create()` + `ImportSubjectPublicKeyInfo` with a
+constructor-time parse that caches `ECParameters`. Per-call verifier is `ECDsa.Create(ecParams)`
+(struct copy, no PEM/DER work, thread-safe via separate instances).
+
+**SUGG-1** (`SendGridWebhookSignatureValidator.ImportPemPublicKey`):
+Removed contradictory comment that mentioned `ImportFromPem`; comment now matches the
+actual `ImportSubjectPublicKeyInfo` call.
+
+### REFACTOR Phase
+N/A — all changes were targeted fixes.
+
+### Test Results After Hardening
+**Full suite: 546 (509 CardVault + 37 IsoSwitch), 0 failures**
+Previous baseline: 540. Delta: +6 tests.
+
+### Commits
+- `6e9913c` — `fix(security): reject future-dated webhook timestamps in replay guard (CRIT-1)` (CRIT-1 + WARN-1 + new tests)
+- `04c6746` — `fix(security): harden webhook validators -- timing-oracle and fail-closed (WARN-2/WARN-3)`
+- `f89d51a` — `refactor(security): harden webhook validators — WARN-2/3/4 + SUGG-1`
+
+---
+
+## Status: COMPLETE (HARDENED)
+Task 1e.1 implemented and all verify findings resolved. Next: Task 1e.2 (webhook endpoint + rate-limit) — separate PR.
