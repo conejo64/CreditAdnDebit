@@ -20,7 +20,6 @@ namespace CardVault.Api.Services.Notifications.Webhooks;
 /// </summary>
 public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidator
 {
-    private readonly SendGridWebhookOptions _options;
     private readonly Func<DateTimeOffset> _clock;
 
     /// <inheritdoc />
@@ -29,8 +28,14 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
 
+    // WARN-4: cache the parsed ECParameters once at construction time.
+    // IOptions<T> is immutable after startup — no need to re-parse the PEM on every request.
+    // ECDsa instances are not safe for concurrent VerifyData calls, so we store ECParameters
+    // and create a cheap per-call ECDsa from those (struct copy, no PEM/DER parsing).
+    private readonly ECParameters _publicKeyParameters;
+
     /// <summary>
-    /// Constructs the validator.
+    /// Constructs the validator, parsing and caching the public key from the options PEM.
     /// </summary>
     /// <param name="options">SendGrid webhook options (PEM public key).</param>
     /// <param name="clock">Clock factory for testable replay detection. Defaults to <see cref="DateTimeOffset.UtcNow"/>.</param>
@@ -38,8 +43,13 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
         IOptions<SendGridWebhookOptions> options,
         Func<DateTimeOffset>? clock = null)
     {
-        _options = options.Value;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+
+        // Parse PEM once at construction. Throws CryptographicException if the PEM is invalid,
+        // which is intentional — fail fast at startup rather than silently at request time.
+        using var ecdsa = ECDsa.Create();
+        ecdsa.ImportSubjectPublicKeyInfo(ImportPemPublicKey(options.Value.WebhookPublicKeyPem), out _);
+        _publicKeyParameters = ecdsa.ExportParameters(includePrivateParameters: false);
     }
 
     /// <inheritdoc />
@@ -81,14 +91,12 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
         timestampBytes.CopyTo(payload, 0);
         rawBody.CopyTo(payload.AsSpan(timestampBytes.Length));
 
-        // 5. Verify ECDSA signature using the configured public key
+        // 5. Verify ECDSA signature using the cached public key parameters.
+        // A fresh ECDsa instance is created from the cached ECParameters (struct copy,
+        // no PEM/DER work) so concurrent requests each get their own verifier.
         try
         {
-            using var ecdsa = ECDsa.Create();
-            ecdsa.ImportSubjectPublicKeyInfo(
-                ImportPemPublicKey(_options.WebhookPublicKeyPem),
-                out _);
-
+            using var ecdsa = ECDsa.Create(_publicKeyParameters);
             return ecdsa.VerifyData(
                 payload,
                 signatureBytes,
@@ -106,14 +114,13 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
     }
 
     /// <summary>
-    /// Strips PEM armor and returns the raw DER bytes for the public key.
+    /// Strips PEM armor and returns the raw DER bytes for the SubjectPublicKeyInfo structure.
+    /// Used once at construction time; result is passed to <see cref="ECDsa.ImportSubjectPublicKeyInfo"/>.
     /// </summary>
     private static ReadOnlySpan<byte> ImportPemPublicKey(string pem)
     {
-        // ECDsa.ImportFromPem works with full PEM string on .NET 5+
-        // We'll use ImportSubjectPublicKeyInfo with the decoded bytes instead,
-        // but .NET 9 also supports ImportFromPem directly — use that for clarity.
-        // Strip headers manually to get the base64 body.
+        // Strip PEM headers manually to extract the base64 DER body,
+        // then pass the decoded bytes to ImportSubjectPublicKeyInfo.
         const string begin = "-----BEGIN PUBLIC KEY-----";
         const string end = "-----END PUBLIC KEY-----";
 
