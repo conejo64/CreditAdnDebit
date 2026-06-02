@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CardVault.Api.Contracts;
 using CardVault.Api.Pci;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using CardVault.Infrastructure.Persistence.Outbox;
@@ -18,12 +19,18 @@ public sealed class NotificationService
     private readonly CardVaultDbContext _db;
     private readonly AuditService _audit;
     private readonly PciAuditPublisher _pciAudit;
+    private readonly VaultCrypto _crypto;
 
-    public NotificationService(CardVaultDbContext db, AuditService audit, PciAuditPublisher pciAudit)
+    public NotificationService(
+        CardVaultDbContext db,
+        AuditService audit,
+        PciAuditPublisher pciAudit,
+        VaultCrypto crypto)
     {
         _db = db;
         _audit = audit;
         _pciAudit = pciAudit;
+        _crypto = crypto;
     }
 
     public async Task CreateTransactionNotificationAsync(
@@ -262,10 +269,13 @@ public sealed class NotificationService
         return account is null ? null : (account.CustomerId, cardId);
     }
 
-    private static IEnumerable<CustomerNotificationDeliveryEntity> BuildDeliveries(Guid notificationId, Infrastructure.Persistence.Issuer.CustomerEntity customer)
+    private IEnumerable<CustomerNotificationDeliveryEntity> BuildDeliveries(
+        Guid notificationId,
+        Infrastructure.Persistence.Issuer.CustomerEntity customer)
     {
         if (!string.IsNullOrWhiteSpace(customer.Email))
         {
+            var (keyId, nonce, cipher, tag) = _crypto.EncryptToParts<string>(customer.Email);
             yield return new CustomerNotificationDeliveryEntity
             {
                 Id = Guid.NewGuid(),
@@ -273,6 +283,10 @@ public sealed class NotificationService
                 Channel = NotificationChannel.Email,
                 DestinationMasked = MaskEmail(customer.Email),
                 DestinationHash = HashDestination(customer.Email),
+                DestinationKeyId = keyId,
+                DestinationNonceB64 = nonce,
+                DestinationCipherB64 = cipher,
+                DestinationTagB64 = tag,
                 Status = NotificationDeliveryStatus.Pending,
                 CreatedOn = DateTimeOffset.UtcNow
             };
@@ -280,6 +294,7 @@ public sealed class NotificationService
 
         if (!string.IsNullOrWhiteSpace(customer.Phone))
         {
+            var (keyId, nonce, cipher, tag) = _crypto.EncryptToParts<string>(customer.Phone);
             yield return new CustomerNotificationDeliveryEntity
             {
                 Id = Guid.NewGuid(),
@@ -287,6 +302,10 @@ public sealed class NotificationService
                 Channel = NotificationChannel.Sms,
                 DestinationMasked = MaskPhone(customer.Phone),
                 DestinationHash = HashDestination(customer.Phone),
+                DestinationKeyId = keyId,
+                DestinationNonceB64 = nonce,
+                DestinationCipherB64 = cipher,
+                DestinationTagB64 = tag,
                 Status = NotificationDeliveryStatus.Pending,
                 CreatedOn = DateTimeOffset.UtcNow
             };

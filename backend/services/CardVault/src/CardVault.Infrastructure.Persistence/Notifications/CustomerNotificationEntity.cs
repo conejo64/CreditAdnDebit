@@ -123,5 +123,26 @@ public sealed class CustomerNotificationDeliveryEntity
     /// <summary>Tenant routing key. Backfill existing rows with default tenant.</summary>
     public Guid TenantId { get; set; }
 
+    // ── Encrypted destination snapshot (Slice 1e.1) ──────────────────────
+    // The real (unmasked) destination is encrypted at enqueue time using VaultCrypto (AES-256-GCM)
+    // so the dispatcher can send to the real address without a customer lookup.
+    // All four parts are NULLABLE for backward-compat with rows created before this slice.
+    // If any part is null, the delivery MUST fail-closed (DeadLetter, no send).
+
+    /// <summary>VaultCrypto key identifier used to encrypt the destination.</summary>
+    [MaxLength(64)]
+    public string? DestinationKeyId { get; set; }
+
+    /// <summary>AES-GCM nonce (base-64) paired with <see cref="DestinationCipherB64"/>.</summary>
+    [MaxLength(64)]
+    public string? DestinationNonceB64 { get; set; }
+
+    /// <summary>AES-GCM ciphertext (base-64) of the real destination (email / E.164 phone).</summary>
+    public string? DestinationCipherB64 { get; set; }
+
+    /// <summary>AES-GCM authentication tag (base-64).</summary>
+    [MaxLength(64)]
+    public string? DestinationTagB64 { get; set; }
+
     public DateTimeOffset CreatedOn { get; set; } = DateTimeOffset.UtcNow;
 }

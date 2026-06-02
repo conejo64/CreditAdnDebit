@@ -3,6 +3,7 @@ using CardVault.Api.Pci;
 using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using CardVault.Infrastructure.Persistence.Outbox;
@@ -30,6 +31,7 @@ public sealed class ProviderFallbackAccountingTests : IDisposable
     private readonly AuditService _audit;
     private readonly PciAuditPublisher _pciAudit;
     private readonly IEventBus _bus;
+    private readonly VaultCrypto _crypto;
     private readonly DateTimeOffset _fixedClock = DateTimeOffset.UtcNow;
 
     public ProviderFallbackAccountingTests()
@@ -41,6 +43,16 @@ public sealed class ProviderFallbackAccountingTests : IDisposable
         _bus = Substitute.For<IEventBus>();
         _pciAudit = new PciAuditPublisher(_bus);
         _audit = new AuditService(_db);
+
+        var vaultOpts = new VaultOptions
+        {
+            ActiveKeyId = "test-k1",
+            Keys = new Dictionary<string, string>
+            {
+                ["test-k1"] = Convert.ToBase64String(new byte[32])
+            }
+        };
+        _crypto = new VaultCrypto(vaultOpts);
     }
 
     public void Dispose() => _db.Dispose();
@@ -73,12 +85,16 @@ public sealed class ProviderFallbackAccountingTests : IDisposable
             _audit,
             NullLogger<NotificationDispatcher>.Instance,
             opts,
+            _crypto,
             () => _fixedClock);
     }
 
     private CustomerNotificationDeliveryEntity SeedPendingDelivery(
         NotificationChannel channel = NotificationChannel.Email)
     {
+        const string destination = "test@example.com";
+        var (keyId, nonce, cipher, tag) = _crypto.EncryptToParts<string>(destination);
+
         var notification = new CustomerNotificationEntity
         {
             Id = Guid.NewGuid(),
@@ -99,6 +115,10 @@ public sealed class ProviderFallbackAccountingTests : IDisposable
             Channel = channel,
             DestinationMasked = "te***@example.com",
             DestinationHash = "hash",
+            DestinationKeyId = keyId,
+            DestinationNonceB64 = nonce,
+            DestinationCipherB64 = cipher,
+            DestinationTagB64 = tag,
             Status = NotificationDeliveryStatus.Pending,
             Attempts = 0,
             TenantId = Guid.NewGuid(),

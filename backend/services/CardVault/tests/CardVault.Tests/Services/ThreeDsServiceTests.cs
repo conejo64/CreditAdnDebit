@@ -2,6 +2,7 @@ using BuildingBlocks.Outbox;
 using CardVault.Api.Contracts;
 using CardVault.Api.Pci;
 using CardVault.Api.Services;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Ecommerce;
 using CardVault.Infrastructure.Persistence.Issuer;
@@ -36,7 +37,8 @@ public sealed class ThreeDsServiceTests : IDisposable
 
         var pciAudit = new PciAuditPublisher(busMock);
         var audit    = new AuditService(_db);
-        var notifications = new NotificationService(_db, audit, pciAudit);
+        var crypto   = TestVaultCrypto.Create();
+        var notifications = new NotificationService(_db, audit, pciAudit, crypto);
 
         // IsDevelopment() = true so DevelopmentOtp is returned in the response
         var env = Substitute.For<IHostEnvironment>();

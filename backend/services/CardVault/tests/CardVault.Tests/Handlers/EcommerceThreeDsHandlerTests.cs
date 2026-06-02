@@ -4,6 +4,7 @@ using CardVault.Api.Features.Ecommerce3ds.Commands;
 using CardVault.Api.Features.Ecommerce3ds.Queries;
 using CardVault.Api.Pci;
 using CardVault.Api.Services;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence.Ecommerce;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;
@@ -35,7 +36,8 @@ public sealed class EcommerceThreeDsHandlerTests : IDisposable
 
         var pciAudit      = new PciAuditPublisher(busMock);
         var audit         = new AuditService(_db);
-        var notifications = new NotificationService(_db, audit, pciAudit);
+        var crypto        = TestVaultCrypto.Create();
+        var notifications = new NotificationService(_db, audit, pciAudit, crypto);
 
         var env = Substitute.For<IHostEnvironment>();
         env.EnvironmentName.Returns("Development");

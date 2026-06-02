@@ -3,6 +3,7 @@ using CardVault.Api.Pci;
 using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using CardVault.Infrastructure.Persistence.Outbox;
@@ -26,6 +27,7 @@ public sealed class NotificationDispatcherTests : IDisposable
     private readonly AuditService _audit;
     private readonly PciAuditPublisher _pciAudit;
     private readonly IEventBus _bus;
+    private readonly VaultCrypto _crypto;
     private DateTimeOffset _fixedClock = DateTimeOffset.UtcNow;
 
     public NotificationDispatcherTests()
@@ -37,6 +39,17 @@ public sealed class NotificationDispatcherTests : IDisposable
         _bus = Substitute.For<IEventBus>();
         _pciAudit = new PciAuditPublisher(_bus);
         _audit = new AuditService(_db);
+
+        // Use a real VaultCrypto with a test key so dispatcher tests work end-to-end.
+        var vaultOpts = new VaultOptions
+        {
+            ActiveKeyId = "test-k1",
+            Keys = new Dictionary<string, string>
+            {
+                ["test-k1"] = Convert.ToBase64String(new byte[32])
+            }
+        };
+        _crypto = new VaultCrypto(vaultOpts);
     }
 
     public void Dispose() => _db.Dispose();
@@ -66,6 +79,7 @@ public sealed class NotificationDispatcherTests : IDisposable
             _audit,
             NullLogger<NotificationDispatcher>.Instance,
             opts,
+            _crypto,
             () => _fixedClock);
     }
 
@@ -90,6 +104,9 @@ public sealed class NotificationDispatcherTests : IDisposable
         };
         _db.CustomerNotifications.Add(notification);
 
+        // Encrypt the destination so the dispatcher can decrypt it (Slice 1e.1 requirement).
+        var (keyId, nonce, cipher, tag) = _crypto.EncryptToParts<string>(destination);
+
         var delivery = new CustomerNotificationDeliveryEntity
         {
             Id = Guid.NewGuid(),
@@ -98,6 +115,10 @@ public sealed class NotificationDispatcherTests : IDisposable
             Channel = channel,
             DestinationMasked = "te***@example.com",
             DestinationHash = "hash",
+            DestinationKeyId = keyId,
+            DestinationNonceB64 = nonce,
+            DestinationCipherB64 = cipher,
+            DestinationTagB64 = tag,
             Status = status,
             Attempts = attempts,
             TenantId = tenantId ?? Guid.Empty,

@@ -427,6 +427,11 @@ public sealed class CardVaultDbContext : DbContext
             b.Property(x => x.LastError).HasMaxLength(256);
             // Slice 1d: new column constraints
             b.Property(x => x.ProviderId).HasMaxLength(32);
+            // Slice 1e.1: encrypted destination snapshot (nullable for backward-compat)
+            b.Property(x => x.DestinationKeyId).HasMaxLength(64);
+            b.Property(x => x.DestinationNonceB64).HasMaxLength(64);
+            b.Property(x => x.DestinationCipherB64); // no MaxLength — ciphertext length scales with payload
+            b.Property(x => x.DestinationTagB64).HasMaxLength(64);
             // Existing indexes (preserved — do NOT remove)
             b.HasIndex(x => new { x.Status, x.CreatedOn })
                 .HasDatabaseName("IX_CustomerNotificationDeliveries_Status_CreatedOn");

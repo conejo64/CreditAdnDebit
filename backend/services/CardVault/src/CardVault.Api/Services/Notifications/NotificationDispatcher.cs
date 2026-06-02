@@ -1,7 +1,9 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using CardVault.Api.Pci;
 using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using CardVault.Infrastructure.Persistence.Outbox;
@@ -35,6 +37,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     private readonly AuditService _audit;
     private readonly ILogger<NotificationDispatcher> _logger;
     private readonly NotificationDispatcherOptions _options;
+    private readonly VaultCrypto _crypto;
     private readonly Func<DateTimeOffset> _clock;
 
     /// <summary>
@@ -48,8 +51,9 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         PciAuditPublisher pciAudit,
         AuditService audit,
         ILogger<NotificationDispatcher> logger,
-        IOptions<NotificationDispatcherOptions> options)
-        : this(db, registry, fsm, renderer, pciAudit, audit, logger, options,
+        IOptions<NotificationDispatcherOptions> options,
+        VaultCrypto crypto)
+        : this(db, registry, fsm, renderer, pciAudit, audit, logger, options, crypto,
                () => DateTimeOffset.UtcNow) { }
 
     /// <summary>
@@ -65,6 +69,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         AuditService audit,
         ILogger<NotificationDispatcher> logger,
         IOptions<NotificationDispatcherOptions> options,
+        VaultCrypto crypto,
         Func<DateTimeOffset> clock)
     {
         _db = db;
@@ -75,6 +80,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         _audit = audit;
         _logger = logger;
         _options = options.Value;
+        _crypto = crypto;
         _clock = clock;
     }
 
@@ -180,8 +186,18 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             at = now
         }, ct);
 
-        // Resolve the provider chain
+        // Resolve real destination — fail-closed if encrypted snapshot is missing or corrupt
         var destination = GetUnmaskedDestination(delivery);
+        if (destination is null)
+        {
+            _logger.LogError(
+                "Delivery {DeliveryId} has missing or corrupt encrypted destination parts — routing to DeadLetter (fail-closed)",
+                delivery.Id);
+            await SetDeadLetterAsync(delivery, "missing-encrypted-destination", null, null, ct);
+            return true;
+        }
+
+        // Resolve the provider chain
         var chain = _registry.ResolveChain(delivery.TenantId, delivery.Channel, destination);
 
         if (chain.Count == 0)
@@ -457,21 +473,43 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     }
 
     /// <summary>
-    /// Gets the unmasked destination from the delivery.
-    /// NOTE: In the current model only the masked destination is stored;
-    /// the real destination must come from the customer entity via a lookup.
-    /// For Slice 1d, we use the destination hash as a passthrough identifier
-    /// and log a warning — a full lookup is Slice 2b (per-tenant routing).
+    /// Decrypts the real (unmasked) destination from the encrypted snapshot stored on the delivery.
+    /// Returns <c>null</c> when any of the four encrypted parts is missing (legacy or corrupt row).
+    /// Callers MUST treat a null return as a fail-closed signal — route to DeadLetter immediately,
+    /// NEVER fall back to <see cref="CustomerNotificationDeliveryEntity.DestinationMasked"/>.
     /// </summary>
-    private static string GetUnmaskedDestination(CustomerNotificationDeliveryEntity delivery)
+    private string? GetUnmaskedDestination(CustomerNotificationDeliveryEntity delivery)
     {
-        // IMPORTANT: CustomerNotificationDeliveryEntity stores only the masked destination.
-        // The real (unmasked) destination must be looked up from CustomerEntity.Email/Phone.
-        // For Slice 1d, we rely on the destination hash as a routing key for CanHandle().
-        // The provider adapters receive the masked value here — full unmasked lookup
-        // is implemented in Slice 2b when per-tenant routing is added.
-        // This is safe because provider.CanHandle() is used only for routing decisions,
-        // not for the actual send (providers must look up the real destination separately).
-        return delivery.DestinationMasked;
+        // Fail-closed: all four parts must be present for decryption.
+        // Legacy rows (created before Slice 1e.1) will have null parts.
+        if (string.IsNullOrEmpty(delivery.DestinationKeyId)
+            || string.IsNullOrEmpty(delivery.DestinationNonceB64)
+            || string.IsNullOrEmpty(delivery.DestinationCipherB64)
+            || string.IsNullOrEmpty(delivery.DestinationTagB64))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _crypto.DecryptFromParts<string>(
+                delivery.DestinationKeyId,
+                delivery.DestinationNonceB64,
+                delivery.DestinationCipherB64,
+                delivery.DestinationTagB64);
+        }
+        catch (Exception ex) when (ex is CryptographicException or InvalidOperationException)
+        {
+            // Decryption failed: corrupted ciphertext/tag, or the snapshot was encrypted under a
+            // key that has since been retired. Fail closed — return null so the caller routes the
+            // delivery to DeadLetter immediately, rather than letting the exception escape and the
+            // row get stuck in Sending until crash-recovery burns the whole retry budget.
+            // The real destination is never exposed: VaultCrypto exception messages carry only the
+            // KeyId, never plaintext.
+            _logger.LogError(ex,
+                "Failed to decrypt destination for delivery {DeliveryId} (KeyId={KeyId}) — fail-closed",
+                delivery.Id, delivery.DestinationKeyId);
+            return null;
+        }
     }
 }
