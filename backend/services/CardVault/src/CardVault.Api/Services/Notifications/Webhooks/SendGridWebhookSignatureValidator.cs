@@ -25,6 +25,9 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
     /// <inheritdoc />
     public string ProviderId => "sendgrid";
 
+    /// <inheritdoc />
+    public string SignatureHeaderName => SignatureHeader;
+
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
 

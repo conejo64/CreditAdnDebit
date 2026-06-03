@@ -127,6 +127,14 @@ public interface IWebhookSignatureValidator
     string ProviderId { get; }
 
     /// <summary>
+    /// The name of the HTTP header that carries the signature for this provider.
+    /// The endpoint controller reads this to distinguish a "missing signature" failure
+    /// (header absent → <c>missing-signature</c> audit reason) from a "tampered" failure
+    /// (header present but validation fails → <c>invalid-signature</c> audit reason).
+    /// </summary>
+    string SignatureHeaderName { get; }
+
+    /// <summary>
     /// Returns <c>true</c> if the request carries a valid, non-replayed signature.
     /// Implementations must use constant-time comparison.
     /// </summary>

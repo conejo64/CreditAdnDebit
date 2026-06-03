@@ -293,7 +293,7 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
 - **Spec ref**: Design §8 (Webhook signature schemes table), Spec "Inbound Delivery Callbacks" requirement — NOTE: SendGrid uses ECDSA not HMAC
 
 ### Task 1e.2 — Webhook endpoint + rate-limit policy + audit events
-- [ ] Write failing integration tests using `CardVaultWebApplicationFactory` (inject fake signature validators):
+- [x] Write failing integration tests using `CardVaultWebApplicationFactory` (inject fake signature validators):
   - Valid signed Twilio callback → 200; `DeliveredOn` updated; `pci.notification.delivery-confirmed` emitted
   - Valid signed SendGrid callback → 200
   - Valid signed Movistar callback → 200
@@ -302,18 +302,18 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
   - Unknown providerId (`POST .../unknown-provider`) → 404
   - Rate-limit exceeded (sendgrid >600/min, twilio >300/min) → 429
   - File: `CardVault.Tests/Features/Notifications/Webhooks/WebhookEndpointIntegrationTests.cs`
-- [ ] Add `POST /api/notifications/delivery-callback/{providerId}` action to `CardVault.Api/Controllers/NotificationsController.cs`:
+- [x] Add `POST /api/notifications/delivery-callback/{providerId}` action to `CardVault.Api/Controllers/NotificationsController.cs`:
   - `[AllowAnonymous]` attribute
   - `[EnableRateLimiting("notifications_webhook")]`
   - Resolves validator from keyed DI by `providerId`; unknown → 404
   - Validation order: resolve → missing-sig → tampered → replay → valid
   - On valid: set `DeliveredOn`; emit `pci.notification.delivery-confirmed`; 200
   - On invalid: `AuditService.WriteAsync` with reason; 401
-- [ ] Add `notifications_webhook` rate-limit policy to Program.cs:
+- [x] Add `notifications_webhook` rate-limit policy to Program.cs:
   - Partition key: `providerId` from route
   - Limits: sendgrid=600/min, twilio=300/min, movistar-ec=120/min, unknown=60/min
-- [ ] Register webhook validators as keyed services in Program.cs (`"twilio"`, `"sendgrid"`, `"movistar-ec"`)
-- [ ] Tests pass
+- [x] Register webhook validators as keyed services in Program.cs (`"twilio"`, `"sendgrid"`, `"movistar-ec"`)
+- [x] Tests pass
 - **Spec ref**: Design §8 (webhook rate-limit table, deny-by-default, validation order), Spec all webhook scenarios
 
 ---

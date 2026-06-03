@@ -22,6 +22,9 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
     /// <inheritdoc />
     public string ProviderId => "twilio";
 
+    /// <inheritdoc />
+    public string SignatureHeaderName => "X-Twilio-Signature";
+
     /// <summary>
     /// Constructs the validator.
     /// </summary>

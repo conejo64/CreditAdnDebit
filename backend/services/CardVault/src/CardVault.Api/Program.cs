@@ -18,6 +18,7 @@ using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Providers;
 using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Api.Services.Notifications.Webhooks;
 using CardVault.Api.Background;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Api.Pci;
@@ -111,6 +112,16 @@ builder.Services.AddSingleton<INotificationProviderRegistry>(sp =>
 // ── Slice 1c: Razor template renderer + PCI guard ──
 builder.Services.AddSingleton<PciTemplateGuard>();
 builder.Services.AddScoped<INotificationTemplateRenderer>(_ => RazorNotificationTemplateRenderer.Create());
+// ── Slice 1e: Webhook signature validator options + keyed registrations ──
+builder.Services.Configure<TwilioWebhookOptions>(builder.Configuration.GetSection("Notifications:Providers:Twilio"));
+builder.Services.Configure<SendGridWebhookOptions>(builder.Configuration.GetSection("Notifications:Webhook:SendGrid"));
+builder.Services.Configure<MovistarWebhookOptions>(builder.Configuration.GetSection("Notifications:Webhook:MovistarEc"));
+builder.Services.AddKeyedSingleton<IWebhookSignatureValidator>("twilio",
+    (sp, _) => new TwilioWebhookSignatureValidator(sp.GetRequiredService<IOptions<TwilioWebhookOptions>>()));
+builder.Services.AddKeyedSingleton<IWebhookSignatureValidator>("sendgrid",
+    (sp, _) => new SendGridWebhookSignatureValidator(sp.GetRequiredService<IOptions<SendGridWebhookOptions>>()));
+builder.Services.AddKeyedSingleton<IWebhookSignatureValidator>("movistar-ec",
+    (sp, _) => new MovistarWebhookSignatureValidator(sp.GetRequiredService<IOptions<MovistarWebhookOptions>>()));
 builder.Services.AddScoped<OpenBankingService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
@@ -211,6 +222,27 @@ builder.Services.AddRateLimiter(options =>
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = vaultOptForRateLimit.AdminRateLimit.QueueLimit
         }));
+    // ── Slice 1e: per-provider webhook delivery-callback rate-limit ──
+    // Limit is read from config at request time so tests can override via UseSetting().
+    // Config key: Notifications:Webhook:RateLimits:{providerId}  (case-insensitive)
+    // Partition key: webhook:{providerId}  (isolated per provider)
+    var webhookRlConfig = builder.Configuration;
+    options.AddPolicy("notifications_webhook", httpContext =>
+    {
+        var providerId = httpContext.GetRouteValue("providerId")?.ToString() ?? "unknown";
+        var limit = int.TryParse(
+            webhookRlConfig[$"Notifications:Webhook:RateLimits:{providerId}"],
+            out var l) ? l : 100;
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"webhook:{providerId}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = limit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
 });
 // Vault (internal tokenization)
 var vaultOpt = builder.Configuration.GetSection("Vault").Get<CardVault.Api.Vault.VaultOptions>() ?? new CardVault.Api.Vault.VaultOptions();

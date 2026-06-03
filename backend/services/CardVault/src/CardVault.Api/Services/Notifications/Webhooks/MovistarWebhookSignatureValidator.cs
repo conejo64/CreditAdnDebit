@@ -22,6 +22,9 @@ public sealed class MovistarWebhookSignatureValidator : IWebhookSignatureValidat
     /// <inheritdoc />
     public string ProviderId => "movistar-ec";
 
+    /// <inheritdoc />
+    public string SignatureHeaderName => "X-Movistar-Signature";
+
     /// <summary>
     /// Constructs the validator.
     /// </summary>
