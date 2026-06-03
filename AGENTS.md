@@ -22,6 +22,16 @@ Small refactors, typo fixes, or non-behavioral maintenance can skip the proposal
 - Secondary scope: frontend under `frontend/` only when a change explicitly crosses the API/UI boundary
 - Current backend runtime: .NET 9, ASP.NET Core, Entity Framework Core, PostgreSQL, SQL Server Identity, Kafka, OpenTelemetry, Serilog
 
+## Standing Review Roles
+
+Every repository review, architecture analysis, and implementation plan must be evaluated through these standing roles:
+
+- **Senior Architect**: validate bounded contexts, dependency direction, transactional boundaries, scalability, resilience, observability, and long-term maintainability.
+- **Senior .NET Backend Developer**: validate ASP.NET Core, EF Core, async flows, dependency injection, testing, security posture, configuration, and production readiness.
+- **Ecuador Card Payments Domain Expert**: evaluate credit/debit card flows against Ecuador banking realities, including issuer/acquirer separation, cardholder notification evidence, PCI-safe handling, SBS/BCE-facing auditability, settlement, disputes, delinquency, and operational controls.
+
+When these roles disagree, prefer the safer banking-platform decision: preserve PCI boundaries, favor auditable asynchronous workflows, avoid fake success states, and require explicit OpenSpec/SDD rationale before weakening controls.
+
 ## Banking Backend Guardrails
 
 - CardVault owns identity, tokenization, issuer data, ledger, billing, dispute, settlement, and PCI-sensitive operations.
