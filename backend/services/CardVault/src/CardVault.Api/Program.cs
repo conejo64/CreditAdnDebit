@@ -97,6 +97,18 @@ builder.Services.AddHttpClient<SendGridEmailProvider>(client =>
 });
 builder.Services.AddSingleton<INotificationProvider>(sp =>
     sp.GetRequiredService<SendGridEmailProvider>());
+// ── Slice 2a: Movistar Ecuador SMS provider (typed HttpClient, registered BEFORE Twilio) ──
+builder.Services.Configure<MovistarOptions>(builder.Configuration.GetSection("Notifications:Providers:MovistarEc"));
+builder.Services.AddSingleton<IMovistarApiKeyProvider, EnvironmentMovistarApiKeyProvider>();
+builder.Services.AddHttpClient<MovistarEcuadorSmsProvider>(client =>
+{
+    var baseUrl = builder.Configuration["Notifications:Providers:MovistarEc:BaseUrl"]
+                  ?? "https://sms.movistar.ec";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<INotificationProvider>(sp =>
+    sp.GetRequiredService<MovistarEcuadorSmsProvider>());
 // ── Slice 1b: Twilio SMS provider (typed HttpClient) ──
 builder.Services.AddSingleton<ITwilioAuthTokenProvider, EnvironmentTwilioAuthTokenProvider>();
 builder.Services.AddHttpClient<TwilioSmsProvider>(client =>

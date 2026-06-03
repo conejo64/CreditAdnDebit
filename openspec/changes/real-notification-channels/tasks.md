@@ -323,7 +323,7 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
 **Goal**: `MovistarEcuadorSmsProvider` behind `INotificationProvider`. Wire protocol fully hidden. Degraded-confirmation path if no DLR. Depends on 1b (same provider pattern).
 
 ### Task 2a.1 — MovistarEcuadorSmsProvider adapter
-- [ ] Write failing tests (HTTP-mocked — SOAP or REST per config):
+- [x] Write failing tests (HTTP-mocked — SOAP or REST per config):
   - Happy SOAP path: correct `XDocument` POST to Movistar endpoint; parses response; `Accepted`
   - SOAP fault `soap:Server` → `TransientFailure`
   - SOAP fault `soap:Client` → `PermanentFailure`
@@ -332,14 +332,14 @@ No real HTTP calls. No EF changes yet. Compiles and tests pass in isolation.
   - Degraded path (no DLR): `SendAsync` returning `Accepted` sets `DeliveredOn` immediately; row → `Sent`
   - `CanHandle(destination)`: returns `true` only for `+593` prefix
   - File: `CardVault.Tests/Features/Notifications/Providers/MovistarEcuadorSmsProviderTests.cs`
-- [ ] Create `CardVault.Api/Services/Notifications/Providers/MovistarEcuadorSmsProvider.cs`
+- [x] Create `CardVault.Api/Services/Notifications/Providers/MovistarEcuadorSmsProvider.cs`
   - Wire protocol: SOAP via `XDocument`/`HttpClient` (no WCF); OR REST JSON — controlled by `MovistarOptions.UseRestProtocol`
   - `CanHandle`: `destination.StartsWith("+593")`
   - Degraded: if `MovistarOptions.DegradedConfirmation = true` → on Accepted, set `DeliveredOn = DateTimeOffset.UtcNow`, emit `pci.notification.delivery-confirmed` at send time, log as SBS-evidence limitation
   - Classifies per design §6 Movistar table
-- [ ] Create `CardVault.Api/Services/Notifications/Providers/MovistarOptions.cs`
-- [ ] Register typed HttpClient in Program.cs
-- [ ] Tests pass
+- [x] Create `CardVault.Api/Services/Notifications/Providers/MovistarOptions.cs`
+- [x] Register typed HttpClient in Program.cs
+- [x] Tests pass
 - **Spec ref**: Design §13 (Movistar isolation, degraded confirmation), §6 (Movistar classification table)
 
 ---

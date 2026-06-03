@@ -27,7 +27,8 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     private const string PciSendAttempt = "pci.notification.send-attempt";
     private const string PciSendResult = "pci.notification.send-result";
     private const string PciDeadLetter = "pci.notification.deadletter";
-    private const string PciDelivered = "pci.notification.delivered"; // back-compat (ADR-9)
+    private const string PciDelivered = "pci.notification.delivered";          // back-compat (ADR-9)
+    private const string PciDeliveryConfirmed = "pci.notification.delivery-confirmed"; // Slice 2a: degraded path
 
     private readonly CardVaultDbContext _db;
     private readonly INotificationProviderRegistry _registry;
@@ -290,6 +291,15 @@ public sealed class NotificationDispatcher : INotificationDispatcher
                     delivery.ProviderId = provider.ProviderId;
                     delivery.ProviderReference = result.ProviderReference;
                     delivery.LastError = null;
+
+                    // Degraded confirmation: provider signals immediate delivery (no DLR callback expected).
+                    // Set DeliveredOn now so EmitSentEventsAsync captures the correct timestamp.
+                    if (result.ProviderReportedAt.HasValue)
+                    {
+                        delivery.DeliveredOn = result.ProviderReportedAt;
+                        await EmitDeliveryConfirmedEventAsync(delivery, ct);
+                    }
+
                     _fsm.Transition(delivery, NotificationDeliveryStatus.Sent);
                     await EmitSentEventsAsync(delivery, ct);
                     await _db.SaveChangesAsync(ct);
@@ -400,6 +410,26 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             destinationMasked = delivery.DestinationMasked,
             providerReference = delivery.ProviderReference,
             traceId = notification?.TraceId
+        }, ct);
+    }
+
+    private async Task EmitDeliveryConfirmedEventAsync(
+        CustomerNotificationDeliveryEntity delivery,
+        CancellationToken ct)
+    {
+        // Emitted when the provider reports immediate delivery (degraded confirmation — no DLR callback).
+        // This is distinct from the back-compat pci.notification.delivered event (which is always emitted).
+        await _pciAudit.PublishAsync(PciDeliveryConfirmed, delivery.NotificationId.ToString("N"), new
+        {
+            deliveryId = delivery.Id,
+            notificationId = delivery.NotificationId,
+            tenantId = delivery.TenantId,
+            channel = delivery.Channel.ToString(),
+            providerId = delivery.ProviderId,
+            providerReference = delivery.ProviderReference,
+            deliveredOn = delivery.DeliveredOn,
+            traceId = delivery.Notification?.TraceId,
+            degradedConfirmation = true
         }, ct);
     }
 
