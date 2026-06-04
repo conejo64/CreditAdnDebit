@@ -150,6 +150,36 @@ public sealed class WebhookEndpointIntegrationTests : IClassFixture<CardVaultWeb
             because: "a valid delivery callback must set DeliveredOn on the Sent delivery");
     }
 
+    /// <summary>
+    /// WARN-1: Tests a Twilio form-encoded POST through the real endpoint.
+    /// After CopyToAsync the stream must be reset to position 0 so that ASP.NET Core's
+    /// form binder can re-read it for BuildSortedParamString. This test uses the fake
+    /// validator (which ignores form content) to verify the endpoint path is reachable;
+    /// the cryptographic correctness is covered in the unit tests.
+    /// </summary>
+    [Fact]
+    public async Task TwilioFormEncodedCallback_Returns200()
+    {
+        using var factory = CreateFactoryWithFakes(validatorResult: true);
+
+        var client = factory.CreateClient();
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{BasePath}/twilio");
+        req.Headers.Add(FakeWebhookSignatureValidator.FakeSignatureHeaderName, "test-value");
+        // Send as application/x-www-form-urlencoded (Twilio's real format)
+        req.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["MessageStatus"] = "delivered",
+            ["MessageSid"] = "SM12345",
+            ["AccountSid"] = "AC12345"
+        });
+
+        var response = await client.SendAsync(req);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+            because: "a form-encoded Twilio callback with a valid fake signature must return 200");
+    }
+
     [Fact]
     public async Task ValidSendGridCallback_Returns200()
     {
