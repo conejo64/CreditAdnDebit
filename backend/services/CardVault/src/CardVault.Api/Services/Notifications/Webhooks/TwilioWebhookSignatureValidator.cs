@@ -39,21 +39,21 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
     }
 
     /// <inheritdoc />
-    public bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
+    public WebhookValidationResult Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
     {
-        // 1. Missing signature or timestamp → reject immediately
+        // 1. Missing signature or timestamp → missing-signature
         if (!request.Headers.TryGetValue("X-Twilio-Signature", out var sigHeader) ||
             string.IsNullOrEmpty(sigHeader))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
         if (!request.Headers.TryGetValue("X-Twilio-Timestamp", out var tsHeader) ||
             !long.TryParse(tsHeader, out var epochSeconds))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
-        // 2. Replay guard: reject if timestamp is 5 minutes or older
+        // 2. Replay guard: reject if timestamp is outside the 5-minute window
         var timestamp = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
         if (!WebhookValidatorHelper.IsWithinReplayWindow(timestamp, _clock()))
-            return false;
+            return WebhookValidationResult.Replayed;
 
         // 3. Compute expected signature — fail closed if form reading throws
         string paramString;
@@ -65,7 +65,7 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
         {
             // WARN-3: form collection access failed (e.g. body not yet read or content-type
             // mismatch). Do not swallow silently in a security path — fail closed.
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
         var data = Encoding.UTF8.GetBytes(_options.WebhookUrl + paramString);
         var key = Encoding.UTF8.GetBytes(_options.AuthToken);
@@ -81,10 +81,12 @@ public sealed class TwilioWebhookSignatureValidator : IWebhookSignatureValidator
             // WARN-2: dummy comparison must use expectedBytes (not actualBytes) in both
             // arguments so timing is independent of the attacker-supplied input length.
             CryptographicOperations.FixedTimeEquals(expectedBytes, expectedBytes);
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
 
-        return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+        return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes)
+            ? WebhookValidationResult.Valid
+            : WebhookValidationResult.InvalidSignature;
     }
 
     /// <summary>

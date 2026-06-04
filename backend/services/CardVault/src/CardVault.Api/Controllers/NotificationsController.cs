@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 
 namespace CardVault.Api.Controllers;
 
@@ -64,10 +65,14 @@ public class NotificationsController : ControllerBase
         using var ms = new MemoryStream();
         await Request.Body.CopyToAsync(ms, ct);
         var rawBodyBytes = ms.ToArray();
+        // Reset stream position so the validator can re-read the body (e.g. form-encoded Twilio)
+        Request.Body.Position = 0;
 
         var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString();
 
         // 3. Missing signature header → 401 + audit reason = missing-signature
+        // (checked before calling Validate so the controller stays the authoritative
+        // gate for this case, independent of any validator implementation detail)
         if (!Request.Headers.ContainsKey(validator.SignatureHeaderName))
         {
             await audit.WriteAsync(
@@ -79,12 +84,21 @@ public class NotificationsController : ControllerBase
             return Results.Unauthorized();
         }
 
-        // 4. Invalid signature → 401 + audit reason = invalid-signature
-        if (!validator.Validate(Request, rawBodyBytes))
+        // 4. Validate signature — discriminated result maps to specific audit reasons
+        var validationResult = validator.Validate(Request, rawBodyBytes);
+
+        if (validationResult != WebhookValidationResult.Valid)
         {
+            var auditReason = validationResult switch
+            {
+                WebhookValidationResult.Replayed => "replayed",
+                WebhookValidationResult.MissingSignature => "missing-signature",
+                _ => "invalid-signature"
+            };
+
             await audit.WriteAsync(
                 "webhook.delivery-callback.rejected",
-                new { providerId, reason = "invalid-signature" },
+                new { providerId, reason = auditReason },
                 correlationId: null,
                 traceId,
                 ct);
@@ -95,32 +109,44 @@ public class NotificationsController : ControllerBase
         string? providerReference = null;
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(rawBodyBytes);
+            using var doc = JsonDocument.Parse(rawBodyBytes);
             if (doc.RootElement.TryGetProperty("providerReference", out var propEl))
                 providerReference = propEl.GetString();
         }
-        catch { /* malformed body — proceed without providerReference */ }
+        catch (JsonException) { /* malformed body — proceed without providerReference */ }
 
         // 6. Mark the delivery as confirmed (set DeliveredOn) if we have a reference
+        CustomerNotificationDeliveryEntity? confirmedDelivery = null;
         if (!string.IsNullOrEmpty(providerReference))
         {
-            var delivery = await db.CustomerNotificationDeliveries
+            confirmedDelivery = await db.CustomerNotificationDeliveries
                 .FirstOrDefaultAsync(
                     d => d.ProviderReference == providerReference && d.DeliveredOn == null,
                     ct);
-            if (delivery is not null)
+            if (confirmedDelivery is not null)
             {
-                delivery.DeliveredOn = DateTimeOffset.UtcNow;
+                confirmedDelivery.DeliveredOn = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
             }
         }
 
         // 7. PCI audit — delivery confirmed event (fire-and-forget safe; NullEventBus in tests)
-        await pciAudit.PublishAsync(
-            "pci.notification.delivery-confirmed",
-            subject: providerId,
-            new { providerId, providerReference },
-            ct);
+        // Subject must be deliveryId per design §11; emit only when a delivery row was confirmed.
+        if (confirmedDelivery is not null)
+        {
+            await pciAudit.PublishAsync(
+                "pci.notification.delivery-confirmed",
+                subject: confirmedDelivery.Id.ToString(),
+                new
+                {
+                    deliveryId = confirmedDelivery.Id,
+                    providerId,
+                    providerReference,
+                    deliveredOn = confirmedDelivery.DeliveredOn,
+                    tenantId = (Guid?)null // tenantId not available at this layer; included for schema completeness
+                },
+                ct);
+        }
 
         return Results.Ok();
     }

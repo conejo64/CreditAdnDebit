@@ -39,21 +39,21 @@ public sealed class MovistarWebhookSignatureValidator : IWebhookSignatureValidat
     }
 
     /// <inheritdoc />
-    public bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
+    public WebhookValidationResult Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
     {
-        // 1. Missing signature → reject
+        // 1. Missing signature → missing-signature
         if (!request.Headers.TryGetValue("X-Movistar-Signature", out var sigHeader) ||
             string.IsNullOrEmpty(sigHeader))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
         // 2. Replay guard via timestamp header
         if (!request.Headers.TryGetValue("X-Movistar-Timestamp", out var tsHeader) ||
             !long.TryParse(tsHeader, out var epochSeconds))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
         var timestamp = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
         if (!WebhookValidatorHelper.IsWithinReplayWindow(timestamp, _clock()))
-            return false;
+            return WebhookValidationResult.Replayed;
 
         // 3. Compute expected HMAC-SHA256 over the raw body
         var key = Encoding.UTF8.GetBytes(_options.WebhookSecret);
@@ -73,9 +73,11 @@ public sealed class MovistarWebhookSignatureValidator : IWebhookSignatureValidat
             // WARN-2: dummy comparison uses expectedBytes in both args so timing is
             // independent of the attacker-supplied input length (not actualBytes).
             CryptographicOperations.FixedTimeEquals(expectedBytes, expectedBytes);
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
 
-        return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+        return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes)
+            ? WebhookValidationResult.Valid
+            : WebhookValidationResult.InvalidSignature;
     }
 }

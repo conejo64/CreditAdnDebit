@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Webhooks;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
@@ -93,7 +94,7 @@ public sealed class WebhookSignatureValidatorTests
         // ── Tests ─────────────────────────────────────────────────────────────
 
         [Fact]
-        public void Validate_ValidSignatureNoParams_ReturnsTrue()
+        public void Validate_ValidSignatureNoParams_ReturnsValid()
         {
             var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
             var request = BuildRequest(expected, RecentTimestamp);
@@ -102,11 +103,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_ValidSignatureWithSortedParams_ReturnsTrue()
+        public void Validate_ValidSignatureWithSortedParams_ReturnsValid()
         {
             var formParams = new Dictionary<string, string>
             {
@@ -122,11 +123,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_MissingSignatureHeader_ReturnsFalse()
+        public void Validate_MissingSignatureHeader_ReturnsMissingSignature()
         {
             var context = new DefaultHttpContext();
             var request = context.Request;
@@ -136,11 +137,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.MissingSignature);
         }
 
         [Fact]
-        public void Validate_TamperedSignature_ReturnsFalse()
+        public void Validate_TamperedSignature_ReturnsInvalidSignature()
         {
             // Correct signature but then modified one char
             var correct = ComputeExpectedSignature(AuthToken, WebhookUrl);
@@ -151,11 +152,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_TamperedBody_ReturnsFalse()
+        public void Validate_TamperedBody_ReturnsInvalidSignature()
         {
             // Signature computed over different params than what's in the request
             var signatureParams = new Dictionary<string, string> { ["MessageStatus"] = "delivered" };
@@ -167,11 +168,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_ReplayAttack_TimestampOlderThan5Min_ReturnsFalse()
+        public void Validate_ReplayAttack_TimestampOlderThan5Min_ReturnsReplayed()
         {
             var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
             var request = BuildRequest(expected, StaleTimestamp);
@@ -179,13 +180,14 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a stale timestamp must return Replayed, not InvalidSignature");
         }
 
         [Fact]
-        public void Validate_TimestampExactly5MinAgo_ReturnsFalse()
+        public void Validate_TimestampExactly5MinAgo_ReturnsReplayed()
         {
-            // Exactly at the boundary — should be rejected (> 5 min means >= 5 min exclusive)
+            // Exactly at the boundary — should be rejected (>= 5 min)
             var boundaryTimestamp = FrozenNow.AddMinutes(-5);
             var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
             var request = BuildRequest(expected, boundaryTimestamp);
@@ -193,11 +195,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.Replayed);
         }
 
         [Fact]
-        public void Validate_TimestampJustUnder5MinAgo_ReturnsTrue()
+        public void Validate_TimestampJustUnder5MinAgo_ReturnsValid()
         {
             var recentEnough = FrozenNow.AddSeconds(-299); // 4m59s old — within window
             var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
@@ -206,15 +208,14 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        public void Validate_FutureDatedTimestamp_ReturnsReplayed()
         {
-            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
-            // Before the fix, ageSeconds is negative and negative < 300 is TRUE (accept).
-            // After the fix, ageSeconds >= 0 is required — so this must return false.
+            // CRIT-1 (1e.1): a timestamp 10 minutes in the FUTURE must be rejected.
+            // After the fix ageSeconds < 0 is caught by ageSeconds >= 0 check → Replayed.
             var futureTimestamp = FrozenNow.AddMinutes(10);
             var expected = ComputeExpectedSignature(AuthToken, WebhookUrl);
             var request = BuildRequest(expected, futureTimestamp);
@@ -222,11 +223,12 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, Array.Empty<byte>());
 
-            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a future-dated timestamp must be rejected with Replayed by the replay guard");
         }
 
         [Fact]
-        public void Validate_MissingTimestampHeader_ReturnsFalse()
+        public void Validate_MissingTimestampHeader_ReturnsMissingSignature()
         {
             // SUGG-2: explicit test for missing timestamp-only path.
             var body = Array.Empty<byte>();
@@ -240,11 +242,12 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse("a missing timestamp header must be rejected");
+            result.Should().Be(WebhookValidationResult.MissingSignature,
+                because: "a missing timestamp header must be rejected");
         }
 
         [Fact]
-        public void Validate_MultiValueParamSortedAlphabetically_ReturnsTrue()
+        public void Validate_MultiValueParamSortedAlphabetically_ReturnsValid()
         {
             // WARN-1: Twilio's documented algorithm for multi-value params:
             // values for a given key must be sorted alphabetically and concatenated.
@@ -273,7 +276,8 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(req, Array.Empty<byte>());
 
-            result.Should().BeTrue("multi-value params must be sorted alphabetically before HMAC");
+            result.Should().Be(WebhookValidationResult.Valid,
+                because: "multi-value params must be sorted alphabetically before HMAC");
         }
 
         [Fact]
@@ -345,7 +349,7 @@ public sealed class WebhookSignatureValidatorTests
         // ── Tests ─────────────────────────────────────────────────────────────
 
         [Fact]
-        public void Validate_ValidEcdsaSignature_ReturnsTrue()
+        public void Validate_ValidEcdsaSignature_ReturnsValid()
         {
             var body = MakeBody();
             var timestamp = RecentTimestamp.ToUnixTimeSeconds().ToString();
@@ -355,11 +359,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_InvalidSignature_WrongKey_ReturnsFalse()
+        public void Validate_InvalidSignature_WrongKey_ReturnsInvalidSignature()
         {
             using var wrongKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var body = MakeBody();
@@ -377,11 +381,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_TamperedBody_ReturnsFalse()
+        public void Validate_TamperedBody_ReturnsInvalidSignature()
         {
             var originalBody = MakeBody();
             var timestamp = RecentTimestamp.ToUnixTimeSeconds().ToString();
@@ -394,11 +398,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, tamperedBody);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_MissingSignatureHeader_ReturnsFalse()
+        public void Validate_MissingSignatureHeader_ReturnsMissingSignature()
         {
             var context = new DefaultHttpContext();
             var request = context.Request;
@@ -409,11 +413,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, MakeBody());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.MissingSignature);
         }
 
         [Fact]
-        public void Validate_MissingTimestampHeader_ReturnsFalse()
+        public void Validate_MissingTimestampHeader_ReturnsMissingSignature()
         {
             var body = MakeBody();
             var timestamp = RecentTimestamp.ToUnixTimeSeconds().ToString();
@@ -427,11 +431,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.MissingSignature);
         }
 
         [Fact]
-        public void Validate_ReplayAttack_StaleTimestamp_ReturnsFalse()
+        public void Validate_ReplayAttack_StaleTimestamp_ReturnsReplayed()
         {
             var body = MakeBody();
             var staleTimestampStr = StaleTimestamp.ToUnixTimeSeconds().ToString();
@@ -441,11 +445,12 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a stale timestamp must return Replayed, not InvalidSignature");
         }
 
         [Fact]
-        public void Validate_TimestampJustUnder5MinAgo_ReturnsTrue()
+        public void Validate_TimestampJustUnder5MinAgo_ReturnsValid()
         {
             var body = MakeBody();
             var recentEnough = FrozenNow.AddSeconds(-299);
@@ -456,13 +461,13 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        public void Validate_FutureDatedTimestamp_ReturnsReplayed()
         {
-            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
+            // CRIT-1 (1e.1): a timestamp 10 minutes in the FUTURE must be rejected.
             var body = MakeBody();
             var futureTimestamp = FrozenNow.AddMinutes(10);
             var timestampStr = futureTimestamp.ToUnixTimeSeconds().ToString();
@@ -472,7 +477,8 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a future-dated timestamp must be rejected with Replayed by the replay guard");
         }
 
         [Fact]
@@ -528,7 +534,7 @@ public sealed class WebhookSignatureValidatorTests
         // ── Tests ─────────────────────────────────────────────────────────────
 
         [Fact]
-        public void Validate_ValidHmacSha256Signature_ReturnsTrue()
+        public void Validate_ValidHmacSha256Signature_ReturnsValid()
         {
             var body = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, body);
@@ -537,11 +543,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_WrongSecret_ReturnsFalse()
+        public void Validate_WrongSecret_ReturnsInvalidSignature()
         {
             var body = MakeBody();
             var sigWithWrongSecret = ComputeExpectedSignature("wrong-secret", body);
@@ -550,11 +556,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_TamperedBody_ReturnsFalse()
+        public void Validate_TamperedBody_ReturnsInvalidSignature()
         {
             var originalBody = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, originalBody);
@@ -565,11 +571,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, tamperedBody);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.InvalidSignature);
         }
 
         [Fact]
-        public void Validate_MissingSignatureHeader_ReturnsFalse()
+        public void Validate_MissingSignatureHeader_ReturnsMissingSignature()
         {
             var context = new DefaultHttpContext();
             var request = context.Request;
@@ -579,11 +585,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, MakeBody());
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.MissingSignature);
         }
 
         [Fact]
-        public void Validate_ReplayAttack_StaleTimestamp_ReturnsFalse()
+        public void Validate_ReplayAttack_StaleTimestamp_ReturnsReplayed()
         {
             var body = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, body);
@@ -592,11 +598,12 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a stale timestamp must return Replayed, not InvalidSignature");
         }
 
         [Fact]
-        public void Validate_TimestampExactly5MinAgo_ReturnsFalse()
+        public void Validate_TimestampExactly5MinAgo_ReturnsReplayed()
         {
             var body = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, body);
@@ -606,11 +613,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse();
+            result.Should().Be(WebhookValidationResult.Replayed);
         }
 
         [Fact]
-        public void Validate_TimestampJustUnder5MinAgo_ReturnsTrue()
+        public void Validate_TimestampJustUnder5MinAgo_ReturnsValid()
         {
             var body = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, body);
@@ -620,11 +627,11 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_UppercaseHexSignature_ReturnsTrue()
+        public void Validate_UppercaseHexSignature_ReturnsValid()
         {
             // Providers sometimes send uppercase hex — validator must accept both cases
             var body = MakeBody();
@@ -634,13 +641,13 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeTrue();
+            result.Should().Be(WebhookValidationResult.Valid);
         }
 
         [Fact]
-        public void Validate_FutureDatedTimestamp_ReturnsFalse()
+        public void Validate_FutureDatedTimestamp_ReturnsReplayed()
         {
-            // CRIT-1: a timestamp 10 minutes in the FUTURE must be rejected.
+            // CRIT-1 (1e.1): a timestamp 10 minutes in the FUTURE must be rejected.
             var body = MakeBody();
             var sig = ComputeExpectedSignature(WebhookSecret, body);
             var futureTimestamp = FrozenNow.AddMinutes(10);
@@ -649,11 +656,12 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator(FrozenNow);
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse("a future-dated timestamp must be rejected by the replay guard");
+            result.Should().Be(WebhookValidationResult.Replayed,
+                because: "a future-dated timestamp must be rejected with Replayed by the replay guard");
         }
 
         [Fact]
-        public void Validate_MissingTimestampHeader_ReturnsFalse()
+        public void Validate_MissingTimestampHeader_ReturnsMissingSignature()
         {
             // SUGG-2: explicit test for missing timestamp-only path.
             var body = MakeBody();
@@ -667,7 +675,8 @@ public sealed class WebhookSignatureValidatorTests
             var validator = CreateValidator();
             var result = validator.Validate(request, body);
 
-            result.Should().BeFalse("a missing timestamp header must be rejected");
+            result.Should().Be(WebhookValidationResult.MissingSignature,
+                because: "a missing timestamp header must be rejected");
         }
 
         [Fact]

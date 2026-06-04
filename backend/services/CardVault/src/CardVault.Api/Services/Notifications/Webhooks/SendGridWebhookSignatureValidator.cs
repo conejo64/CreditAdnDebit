@@ -56,26 +56,26 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
     }
 
     /// <inheritdoc />
-    public bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
+    public WebhookValidationResult Validate(HttpRequest request, ReadOnlySpan<byte> rawBody)
     {
-        // 1. Missing headers → reject
+        // 1. Missing headers → missing-signature
         if (!request.Headers.TryGetValue(SignatureHeader, out var sigHeader) ||
             string.IsNullOrEmpty(sigHeader))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
         if (!request.Headers.TryGetValue(TimestampHeader, out var tsHeader) ||
             string.IsNullOrEmpty(tsHeader))
-            return false;
+            return WebhookValidationResult.MissingSignature;
 
         var timestampStr = tsHeader.ToString();
 
-        // 2. Replay guard
+        // 2. Replay guard — check before verifying the signature
         if (!long.TryParse(timestampStr, out var epochSeconds))
-            return false;
+            return WebhookValidationResult.InvalidSignature;
 
         var timestamp = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
         if (!WebhookValidatorHelper.IsWithinReplayWindow(timestamp, _clock()))
-            return false;
+            return WebhookValidationResult.Replayed;
 
         // 3. Decode the base64 signature
         byte[] signatureBytes;
@@ -85,7 +85,7 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
         }
         catch (FormatException)
         {
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
 
         // 4. Build the payload: UTF8(timestamp) + rawBody
@@ -104,15 +104,17 @@ public sealed class SendGridWebhookSignatureValidator : IWebhookSignatureValidat
                 payload,
                 signatureBytes,
                 HashAlgorithmName.SHA256,
-                DSASignatureFormat.Rfc3279DerSequence);
+                DSASignatureFormat.Rfc3279DerSequence)
+                ? WebhookValidationResult.Valid
+                : WebhookValidationResult.InvalidSignature;
         }
         catch (CryptographicException)
         {
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
         catch (Exception)
         {
-            return false;
+            return WebhookValidationResult.InvalidSignature;
         }
     }
 

@@ -196,5 +196,6 @@ file sealed class StubWebhookValidator : IWebhookSignatureValidator
 {
     public string ProviderId => "stub";
     public string SignatureHeaderName => "X-Stub-Signature";
-    public bool Validate(Microsoft.AspNetCore.Http.HttpRequest request, ReadOnlySpan<byte> rawBody) => true;
+    public WebhookValidationResult Validate(Microsoft.AspNetCore.Http.HttpRequest request, ReadOnlySpan<byte> rawBody)
+        => WebhookValidationResult.Valid;
 }

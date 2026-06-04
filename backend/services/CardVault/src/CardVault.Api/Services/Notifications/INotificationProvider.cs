@@ -119,6 +119,36 @@ public interface IDeliveryStateMachine
 }
 
 /// <summary>
+/// Discriminated result returned by <see cref="IWebhookSignatureValidator.Validate"/>.
+/// Each variant maps to a distinct audit reason in the controller so SIEM rules can
+/// distinguish replay attacks from signature tampering.
+/// </summary>
+public enum WebhookValidationResult
+{
+    /// <summary>Signature is present, valid, and within the replay window.</summary>
+    Valid,
+
+    /// <summary>
+    /// The expected signature header is absent from the request.
+    /// Controller maps to HTTP 401 + audit reason "missing-signature".
+    /// </summary>
+    MissingSignature,
+
+    /// <summary>
+    /// The signature header is present but the computed HMAC/ECDSA does not match.
+    /// Controller maps to HTTP 401 + audit reason "invalid-signature".
+    /// </summary>
+    InvalidSignature,
+
+    /// <summary>
+    /// The signature is cryptographically valid but the timestamp falls outside the
+    /// 5-minute replay window (too old or future-dated).
+    /// Controller maps to HTTP 401 + audit reason "replayed".
+    /// </summary>
+    Replayed
+}
+
+/// <summary>
 /// Validates an inbound webhook request signature for a specific provider.
 /// </summary>
 public interface IWebhookSignatureValidator
@@ -135,8 +165,9 @@ public interface IWebhookSignatureValidator
     string SignatureHeaderName { get; }
 
     /// <summary>
-    /// Returns <c>true</c> if the request carries a valid, non-replayed signature.
-    /// Implementations must use constant-time comparison.
+    /// Returns a <see cref="WebhookValidationResult"/> indicating whether the request
+    /// carries a valid, non-replayed signature or the specific failure reason.
+    /// Implementations must use constant-time comparison for HMAC/ECDSA verification.
     /// </summary>
-    bool Validate(HttpRequest request, ReadOnlySpan<byte> rawBody);
+    WebhookValidationResult Validate(HttpRequest request, ReadOnlySpan<byte> rawBody);
 }
