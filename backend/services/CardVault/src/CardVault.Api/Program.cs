@@ -244,7 +244,7 @@ builder.Services.AddRateLimiter(options =>
         var providerId = httpContext.GetRouteValue("providerId")?.ToString() ?? "unknown";
         var limit = int.TryParse(
             webhookRlConfig[$"Notifications:Webhook:RateLimits:{providerId}"],
-            out var l) ? l : 100;
+            out var l) ? l : 60; // deny-tighter-by-default: unconfigured providers get 60/min
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: $"webhook:{providerId}",
             factory: _ => new FixedWindowRateLimiterOptions
