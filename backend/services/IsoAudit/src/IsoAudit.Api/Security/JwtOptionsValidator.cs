@@ -1,0 +1,26 @@
+using Microsoft.Extensions.Options;
+
+namespace IsoAudit.Api.Security;
+
+/// <summary>
+/// Custom IValidateOptions that rejects known DEV placeholder literals and
+/// JWT keys shorter than 32 characters (ADR-1, SEC-3).
+/// </summary>
+internal sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
+{
+    private static readonly string[] Forbidden =
+        ["DEV_ONLY", "CHANGE_ME", "change_me", "placeholder"];
+
+    public ValidateOptionsResult Validate(string? name, JwtOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.Key) || options.Key.Length < 32)
+            return ValidateOptionsResult.Fail(
+                "Jwt:Key must be at least 32 characters.");
+
+        if (Forbidden.Any(f => options.Key.Contains(f, StringComparison.OrdinalIgnoreCase)))
+            return ValidateOptionsResult.Fail(
+                "Jwt:Key is a known placeholder value; set a real secret.");
+
+        return ValidateOptionsResult.Success;
+    }
+}

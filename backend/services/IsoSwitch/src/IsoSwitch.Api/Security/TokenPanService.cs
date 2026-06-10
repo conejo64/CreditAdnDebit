@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Options;
 
 namespace IsoSwitch.Api.Security;
 
@@ -12,9 +13,9 @@ public sealed class TokenPanService : ITokenPanService
 {
     private readonly string _secret;
 
-    public TokenPanService(IConfiguration cfg)
+    public TokenPanService(IOptions<TokenizationOptions> options)
     {
-        _secret = cfg["Tokenization:Secret"] ?? "DEV_ONLY_CHANGE_ME";
+        _secret = options.Value.Secret;
     }
 
     public string Tokenize(string pan)

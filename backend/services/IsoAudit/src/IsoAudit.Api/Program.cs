@@ -1,7 +1,9 @@
 using Confluent.Kafka;
+using IsoAudit.Api.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,7 +12,17 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
+// ADR-1: JwtOptions with ValidateOnStart + custom placeholder validator (SEC-3)
+builder.Services.AddOptions<JwtOptions>()
+    .BindConfiguration(JwtOptions.Section)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
+
 // v55: JWT auth for audit read endpoints
+// Key resolved from strongly-typed IOptions<JwtOptions> (ADR-1)
+var jwtKeyBytes = System.Text.Encoding.UTF8.GetBytes(
+    builder.Configuration["Jwt:Key"] ?? string.Empty);
 builder.Services.AddAuthentication().AddJwtBearer(options =>
 {
     options.RequireHttpsMetadata = false;
@@ -19,8 +31,7 @@ builder.Services.AddAuthentication().AddJwtBearer(options =>
         ValidateIssuer = false,
         ValidateAudience = false,
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-            System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "DEV_ONLY_CHANGE_ME_32CHARS_MINIMUM"))
+        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(jwtKeyBytes)
     };
 });
 
@@ -49,7 +60,11 @@ var app = builder.Build();
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
-    await db.Database.MigrateAsync();
+    // Dev/test uses EnsureCreated (InMemory-compatible); prod applies migrations.
+    if (app.Environment.IsDevelopment())
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
 }
 
 app.UseSwagger();
@@ -179,3 +194,6 @@ sealed class IsoAuditConsumerWorker : BackgroundService
         }
     }
 }
+
+// Required for WebApplicationFactory<Program> in integration tests
+public partial class Program { }

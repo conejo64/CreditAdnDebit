@@ -27,6 +27,7 @@ using System.Text.Json;
 using IsoSwitch.Api.Background;
 using IsoSwitch.Api.Tcp;
 using IsoSwitch.Api.Endpoints;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
@@ -47,6 +48,12 @@ builder.Services.AddOpenTelemetry().ConfigureResource(r => r.AddService(otelServ
 });
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 builder.Services.AddEndpointsApiExplorer();
+// ADR-1: TokenizationOptions with ValidateOnStart + custom placeholder validator
+builder.Services.AddOptions<TokenizationOptions>()
+    .BindConfiguration(TokenizationOptions.Section)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<TokenizationOptions>, TokenizationOptionsValidator>();
 builder.Services.AddSingleton<ITokenPanService, TokenPanService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSwaggerGen();
@@ -148,7 +155,11 @@ using (var scope = app.Services.CreateScope())
         try
         {
             logger.LogInformation("Attempting to apply migrations for IsoSwitch (Attempt {RetryCount}/5)...", retryCount + 1);
-            await db.Database.MigrateAsync();
+            // Dev/test uses EnsureCreated (InMemory-compatible); prod applies migrations.
+            if (app.Environment.IsDevelopment())
+                await db.Database.EnsureCreatedAsync();
+            else
+                await db.Database.MigrateAsync();
             logger.LogInformation("IsoSwitch migrations applied successfully.");
             break;
         }
@@ -302,4 +313,7 @@ public sealed record SwitchAuthApprovedV1(Guid AccountId, decimal Amount, string
 public sealed record SwitchAuthReversedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);
 public sealed record SwitchClearingPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);
 public sealed record SwitchRefundPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, DateTimeOffset PostedOn);
+
+// Required for WebApplicationFactory<Program> in integration tests
+public partial class Program { }
 public sealed record SwitchChargebackPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? ReasonCode, DateTimeOffset PostedOn);
