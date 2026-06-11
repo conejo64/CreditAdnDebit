@@ -19,8 +19,12 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
-// v55: JWT auth for audit read endpoints
-// Key resolved from strongly-typed IOptions<JwtOptions> (ADR-1)
+// v55: JWT auth for audit read endpoints.
+// Key is read from configuration here; ValidateOnStart (above) guarantees the
+// host refuses to start unless Jwt:Key passes JwtOptionsValidator (SEC-3), so
+// the bearer can never serve with an invalid key.
+// TODO(slice-2): fold this bearer setup into IOptions<JwtOptions> when issuer/
+// audience validation is enabled.
 var jwtKeyBytes = System.Text.Encoding.UTF8.GetBytes(
     builder.Configuration["Jwt:Key"] ?? string.Empty);
 builder.Services.AddAuthentication().AddJwtBearer(options =>
