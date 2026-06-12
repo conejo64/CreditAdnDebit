@@ -27,11 +27,15 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
     // Must match appsettings.json Jwt section
     private const string Issuer    = "CardVault";
     private const string Audience  = "CardSwitch";
-    private const string SigningKey = "CHANGE_ME_IN_PRODUCTION_32_CHARS_MIN";
+    // Valid non-placeholder test key (32+ chars, passes JwtOptionsValidator SEC-2).
+    private const string SigningKey = "TestSigningKeyForCardVaultIntegrationTests";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+
+        // Provide a valid signing key so startup secret validation (SEC-2) passes.
+        builder.UseSetting("Jwt:SigningKey", SigningKey);
 
         builder.ConfigureTestServices(services =>
         {

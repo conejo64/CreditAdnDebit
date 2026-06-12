@@ -19,4 +19,7 @@
     <ProjectReference Include="..\..\..\IsoSwitch\src\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="IsoAudit.Tests" />
+  </ItemGroup>
 </Project>

@@ -137,7 +137,11 @@ builder.Services.AddKeyedSingleton<IWebhookSignatureValidator>("movistar-ec",
 builder.Services.AddScoped<OpenBankingService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+builder.Services.AddOptions<JwtOptions>()
+    .BindConfiguration("Jwt")
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddSingleton(builder.Configuration.GetSection("Pci").Get<PciOptions>() ?? new PciOptions());
 builder.Services.AddScoped<PciAuditPublisher>();
