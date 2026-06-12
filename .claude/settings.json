@@ -22,7 +22,8 @@
       "Read(//c/Users/ortizja/.agents/skills/dotnet-best-practices/**)",
       "Read(//c/Users/ortizja/.config/opencode/skills/work-unit-commits/**)",
       "Read(//c/Users/ortizja/.agents/skills/dotnet-backend-patterns/**)",
-      "Bash(Get-ChildItem \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\backend\\\\services\\\\CardVault\\\\src\\\\CardVault.Api\" -Filter \"appsettings*.json\")"
+      "Bash(Get-ChildItem \"d:\\\\Jonathan\\\\desarrollo\\\\ZitronSystem\\\\backend\\\\services\\\\CardVault\\\\src\\\\CardVault.Api\" -Filter \"appsettings*.json\")",
+      "Bash(grep -v \"//.*comment\")"
     ],
     "additionalDirectories": [
       "d:\\Jonathan\\desarrollo\\ZitronSystem\\openspec\\changes"
