@@ -21,7 +21,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    [AllowAnonymous]
+    [Authorize(Policy = "CanManageUsersRoles")]
     public async Task<IResult> Register([FromBody] RegisterRequest req, CancellationToken ct)
     {
         return await _mediator.Send(new RegisterUserCommand(req), ct);

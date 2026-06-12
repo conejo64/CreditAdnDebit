@@ -248,7 +248,7 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 **Goal**: Anonymous `POST /api/auth/register` returns 401; non-Admin returns 403. INTERIM only — no invitation logic. Spec ref: SEC-7.
 
 ### Task 5.1 — Write failing tests: anonymous 401, non-policy 403, policy proceeds (RED)
-- [ ] Create `CardVault.Tests/Security/RegisterLockdownTests.cs`:
+- [x] Create `CardVault.Tests/Security/RegisterLockdownTests.cs`:
   - `AnonymousRegister_Returns401` — no `Authorization` header → 401; assert no user created in DB
   - `AuthenticatedWithoutPolicy_Returns403` — valid JWT for `Auditor` role (no `users:manage` claim) → 403; assert no user created
   - `AuthenticatedWithPolicy_ReachesHandler` — valid JWT for `Admin` → response is NOT 401/403 (may be 400 on invalid payload, that's fine)
@@ -256,14 +256,15 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 - **Spec ref**: SEC-7 scenarios
 
 ### Task 5.2 — Swap `[AllowAnonymous]` for `[Authorize]` on `Register` action (GREEN)
-- [ ] Modify `CardVault.Api/Controllers/AuthController.cs` line 24:
+- [x] Modify `CardVault.Api/Controllers/AuthController.cs` line 24:
   - Remove: `[AllowAnonymous]`
   - Add: `[Authorize(Policy = "CanManageUsersRoles")]`
   - No other changes; no invitation logic; no new policy
 - **Spec ref**: ADR-5; SEC-7
 
 ### Task 5.3 — Verify GREEN: S5 tests pass, S1–S4 still green, baseline preserved
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm 596+ green
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm 596+ green
+- **Result**: 647 total — CardVault: 576 (+3 new S5), IsoSwitch: 53, IsoAudit: 18. All pass.
 - **Spec ref**: SEC-7 success criteria
 
 ---
