@@ -208,34 +208,37 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 **Goal**: Replace `AllowAnyOrigin()` in all 3 services with config-driven `WithOrigins(...)`. Spec ref: SEC-6.
 
 ### Task 4.1 — Write failing tests: non-allowlisted origin blocked, allowlisted echoed (RED)
-- [ ] Create `CardVault.Tests/Security/CorsAllowlistTests.cs`:
+- [x] Create `CardVault.Tests/Security/CorsAllowlistTests.cs`:
   - `EvilOrigin_NoCorsHeader_Returned` — CORS preflight with `Origin: https://evil.example.com`; assert response has NO `Access-Control-Allow-Origin`
   - `AllowlistedOrigin_CorsHeader_Returned` — preflight with configured origin; assert `Access-Control-Allow-Origin: <origin>`
   - Use `WebApplicationFactory<CardVault.Api.Program>` with `Cors:AllowedOrigins:0 = https://allowed.example.com`
-- [ ] Repeat for `IsoSwitch.Tests/Security/CorsAllowlistTests.cs` and `IsoAudit.Tests/Security/CorsAllowlistTests.cs`
+- [x] Repeat for `IsoSwitch.Tests/Security/CorsAllowlistTests.cs` and `IsoAudit.Tests/Security/CorsAllowlistTests.cs`
 - **Spec ref**: SEC-6 scenarios
+- **Commit**: 38a0257 — RED confirmed: AllowAnyOrigin returns * for every origin
 
 ### Task 4.2 — Replace `AllowAnyOrigin()` in all 3 `Program.cs` files (GREEN)
-- [ ] `CardVault.Api/Program.cs` (line 52): replace CORS registration:
+- [x] `CardVault.Api/Program.cs` (line 52): replace CORS registration:
   ```csharp
   var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
   builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
       p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
   ```
-- [ ] `IsoSwitch.Api/Program.cs` (line 48): same pattern
-- [ ] `IsoAudit.Api/Program.cs` (line 11): same pattern
-- [ ] `app.UseCors()` calls remain unchanged
+- [x] `IsoSwitch.Api/Program.cs` (line 48): same pattern
+- [x] `IsoAudit.Api/Program.cs` (line 11): same pattern
+- [x] `app.UseCors()` calls remain unchanged
 - **Spec ref**: ADR-4
 
 ### Task 4.3 — Add `Cors:AllowedOrigins` to `appsettings.json` for all 3 services (GREEN)
-- [ ] `CardVault.Api/appsettings.json`: add `"Cors": { "AllowedOrigins": [] }` (empty; dev overrides via user-secrets or `appsettings.Development.json`)
-- [ ] `IsoSwitch.Api/appsettings.json`: same
-- [ ] `IsoAudit.Api/appsettings.json`: same
-- [ ] Add `Cors__AllowedOrigins__0` to `.env.example`
+- [x] `CardVault.Api/appsettings.json`: add `"Cors": { "AllowedOrigins": [] }` (empty; dev overrides via user-secrets or `appsettings.Development.json`)
+- [x] `IsoSwitch.Api/appsettings.json`: same
+- [x] `IsoAudit.Api/appsettings.json`: same
+- [x] Add `Cors__AllowedOrigins__0` to `.env.example`
+- **Decision**: appsettings.Development.json for CardVault and IsoAudit includes `http://localhost:4200` (Angular dev server). IsoSwitch has no browser client — Development also empty. Spec was silent on dev origins.
 - **Spec ref**: ADR-4
 
 ### Task 4.4 — Verify GREEN: S4 tests pass, S1–S3 still green
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln`
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln`
+- **Result**: CardVault 573/573, IsoSwitch 53/53, IsoAudit 15/18 (3 pre-existing S2 regression failures in JwtHardeningTests — caused by commit 4efbeac reverting S2 Program.cs; unrelated to S4). S4 adds 6 new green tests (+2 per service).
 - **Spec ref**: SEC-6 success criteria
 
 ---

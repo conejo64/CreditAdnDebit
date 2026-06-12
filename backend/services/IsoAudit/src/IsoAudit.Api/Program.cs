@@ -2,15 +2,21 @@ using Confluent.Kafka;
 using IsoAudit.Api.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+// ADR-4: CORS allowlist — origins driven by config (SEC-6). AllowAnyOrigin removed.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 // ADR-1: JwtOptions with ValidateOnStart + custom placeholder validator (SEC-3)
 builder.Services.AddOptions<JwtOptions>()
@@ -19,25 +25,28 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
-// v55: JWT auth for audit read endpoints.
-// Key is read from configuration here; ValidateOnStart (above) guarantees the
-// host refuses to start unless Jwt:Key passes JwtOptionsValidator (SEC-3), so
-// the bearer can never serve with an invalid key.
-// TODO(slice-2): fold this bearer setup into IOptions<JwtOptions> when issuer/
-// audience validation is enabled.
-var jwtKeyBytes = System.Text.Encoding.UTF8.GetBytes(
-    builder.Configuration["Jwt:Key"] ?? string.Empty);
-builder.Services.AddAuthentication().AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = false;
-    options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+// ADR-2: JWT bearer — issuer/audience validation + env-gated HTTPS metadata (SEC-4).
+// Key, issuer, and audience are resolved from IOptions<JwtOptions> via PostConfigure so
+// all values come from the strongly-typed options validated by ValidateOnStart (W-2 fix).
+// RequireHttpsMetadata is true in every environment except Development.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>, IHostEnvironment>((jwtBearerOpts, opts, env) =>
     {
-        ValidateIssuer = false,
-        ValidateAudience = false,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(jwtKeyBytes)
-    };
-});
+        var jwtConfig = opts.Value;
+        var keyBytes = Encoding.UTF8.GetBytes(jwtConfig.Key);
+        jwtBearerOpts.RequireHttpsMetadata = !env.IsDevelopment();
+        jwtBearerOpts.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtConfig.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtConfig.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            ValidateLifetime = true
+        };
+    });
 
 builder.Services.AddAuthorization(options =>
 {
@@ -64,8 +73,9 @@ var app = builder.Build();
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
-    // Dev/test uses EnsureCreated (InMemory-compatible); prod applies migrations.
-    if (app.Environment.IsDevelopment())
+    // Dev/test (or InMemory provider) uses EnsureCreated; prod applies migrations.
+    var isInMemory = db.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) ?? false;
+    if (app.Environment.IsDevelopment() || isInMemory)
         await db.Database.EnsureCreatedAsync();
     else
         await db.Database.MigrateAsync();

@@ -46,7 +46,10 @@ builder.Services.AddOpenTelemetry().ConfigureResource(r => r.AddService(otelServ
 {
     m.AddMeter("IsoSwitch.Metrics").AddAspNetCoreInstrumentation().AddRuntimeInstrumentation().AddMeter("BuildingBlocks.Kafka.Metrics").AddPrometheusExporter();
 });
-builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+// ADR-4: CORS allowlist — origins driven by config (SEC-6). AllowAnyOrigin removed.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddEndpointsApiExplorer();
 // ADR-1: TokenizationOptions with ValidateOnStart + custom placeholder validator
 builder.Services.AddOptions<TokenizationOptions>()

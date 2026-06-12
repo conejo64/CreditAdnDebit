@@ -49,7 +49,12 @@ builder.Services.AddOpenTelemetry().ConfigureResource(r => r.AddService(otelServ
 {
     m.AddMeter("CardVault.Metrics").AddAspNetCoreInstrumentation().AddRuntimeInstrumentation().AddMeter("BuildingBlocks.Kafka.Metrics").AddPrometheusExporter();
 });
-builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+// ADR-4: CORS allowlist — origins driven by config (SEC-6). AllowAnyOrigin removed.
+// Empty Cors:AllowedOrigins in appsettings.json = no CORS; dev origins in
+// appsettings.Development.json; prod origins via env var Cors__AllowedOrigins__0..n.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddControllers();
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
