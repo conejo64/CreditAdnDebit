@@ -92,44 +92,44 @@ S3 and S4 are logically independent of each other but are sequenced for a clean 
 
 ### Task 1.1 — Create `.github/workflows/ci.yml` with `build-test` and `build-frontend` jobs
 
-- [ ] Create `.github/workflows/ci.yml`.
-- [ ] Set triggers: `on: push` and `pull_request` targeting `main` only.
-- [ ] Define `build-test` job (`runs-on: ubuntu-latest`):
+- [x] Create `.github/workflows/ci.yml`.
+- [x] Set triggers: `on: push` and `pull_request` targeting `main` only.
+- [x] Define `build-test` job (`runs-on: ubuntu-latest`):
   - Step: `actions/checkout@v4`
   - Step: `actions/setup-dotnet@v4` with `dotnet-version: 9.0.x`; enable NuGet cache (`cache: true`) keyed on `**/*.csproj`
   - Step: `dotnet restore backend/CardSwitchPlatform.sln`
   - Step: `dotnet build -c Release --no-restore backend/CardSwitchPlatform.sln`
   - Step: `dotnet test -c Release --no-build --logger "trx;LogFileName=results.trx" backend/CardSwitchPlatform.sln`
   - Step: `actions/upload-artifact@v4` uploading `**/TestResults/*.trx` — always runs (`if: always()`)
-- [ ] Define `build-frontend` job (`runs-on: ubuntu-latest`, NO `needs` — runs parallel):
+- [x] Define `build-frontend` job (`runs-on: ubuntu-latest`, NO `needs` — runs parallel):
   - Step: `actions/checkout@v4`
   - Step: `actions/setup-node@v4` with `node-version: 20`; npm cache enabled (`cache: npm`, `cache-dependency-path: frontend/package-lock.json`)
   - Step: `npm ci --prefix frontend`
   - Step: `npm run build --prefix frontend` (invokes `ng build --configuration production` via `package.json` script)
-- [ ] Do NOT add a `docker-build` job yet (that is S2).
+- [x] Do NOT add a `docker-build` job yet (that is S2).
 - **Spec ref**: CICD-1 (trigger + structure), CICD-2 (build-test detail), CICD-3 (build-frontend detail)
 
 ### Task 1.2 — Verify `build-test` locally (config-lint)
 
-- [ ] Confirm `backend/CardSwitchPlatform.sln` path is correct (`backend/CardSwitchPlatform.sln` exists at repo root → `backend/`).
-- [ ] Confirm `dotnet-version: 9.0.x` matches the project's `<TargetFramework>net9.0</TargetFramework>`.
-- [ ] Lint `ci.yml` for YAML syntax (e.g., `yamllint` or GitHub Actions VS Code extension).
-- [ ] Confirm `--no-restore` flag is present on `dotnet build` and `--no-build` on `dotnet test`.
+- [x] Confirm `backend/CardSwitchPlatform.sln` path is correct (`backend/CardSwitchPlatform.sln` exists at repo root → `backend/`).
+- [x] Confirm `dotnet-version: 9.0.x` matches the project's `<TargetFramework>net9.0</TargetFramework>`.
+- [x] Lint `ci.yml` for YAML syntax (e.g., `yamllint` or GitHub Actions VS Code extension).
+- [x] Confirm `--no-restore` flag is present on `dotnet build` and `--no-build` on `dotnet test`.
 - **Spec ref**: CICD-2
 
 ### Task 1.3 — Verify `build-frontend` locally (config-lint)
 
-- [ ] Confirm `frontend/package-lock.json` exists (required for `npm ci`).
-- [ ] Confirm `package.json` has a `"build"` script that calls `ng build --configuration production` (or equivalent).
-- [ ] Confirm `angular.json` has a `production` configuration (it does; `defaultConfiguration` is already `production`).
+- [x] Confirm `frontend/package-lock.json` exists (required for `npm ci`).
+- [x] Confirm `package.json` has a `"build"` script that calls `ng build --configuration production` (or equivalent).
+- [x] Confirm `angular.json` has a `production` configuration (it does; `defaultConfiguration` is already `production`).
 - **Spec ref**: CICD-3
-- **Note**: `environment.prod.ts` and `fileReplacements` do not exist yet; `ng build --configuration production` may fail until S3 lands. The `build-frontend` job in CI will be truly green only after S3 merges. This is acceptable — S1 proves the workflow plumbing; S3 makes the frontend build pass.
+- **Note**: `environment.prod.ts` and `fileReplacements` do not exist yet; `ng build --configuration production` will fail until S3 lands. The `build-frontend` job in CI will be truly green only after S3 merges. This is expected — S1 proves the workflow plumbing; S3 makes the frontend build pass.
 
 ### Task 1.4 — Verify slice integrity
 
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln` locally — confirm 650+ green (CICD-INV-4).
-- [ ] Confirm `.github/workflows/ci.yml` is the only file changed in this slice.
-- [ ] Commit: `feat(ci): add build-test and build-frontend jobs to ci.yml`
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln` locally — confirm 650 green (CICD-INV-4). ✓ 650 passed (18 IsoAudit + 53 IsoSwitch + 579 CardVault).
+- [x] Confirm `.github/workflows/ci.yml` is the only file changed in this slice (plus openspec planning artifacts committed separately).
+- [x] Commit: `feat(ci): add build-test and build-frontend jobs to ci.yml`
 - **Spec ref**: CICD-INV-4
 
 ---
