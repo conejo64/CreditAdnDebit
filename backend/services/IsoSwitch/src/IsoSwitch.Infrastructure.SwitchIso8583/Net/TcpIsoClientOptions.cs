@@ -6,7 +6,7 @@ public sealed class TcpIsoClientOptions
     public int Port { get; set; } = 5000;
 
     public bool UseTls { get; set; } = false;
-    public bool AllowInvalidCert { get; set; } = true; // dev default
+    public bool AllowInvalidCert { get; set; } = false; // ADR-7: must be explicitly opted in via config
 
     public int TimeoutMs { get; set; } = 3000;
 

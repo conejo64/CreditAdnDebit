@@ -1,4 +1,5 @@
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
+using Microsoft.Extensions.Logging;
 using System.Net.Sockets;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -13,16 +14,20 @@ public sealed class TcpIsoClient
 {
     private readonly TcpIsoClientOptions _opt;
     private readonly SimpleCircuitBreaker _cb;
+    private readonly ILogger<TcpIsoClient> _logger;
 
-    public TcpIsoClient(TcpIsoClientOptions opt)
+    public TcpIsoClient(TcpIsoClientOptions opt, ILogger<TcpIsoClient> logger)
     {
         _opt = opt;
+        _logger = logger;
         _cb = new SimpleCircuitBreaker(opt.CircuitBreaker.FailureThreshold, TimeSpan.FromSeconds(opt.CircuitBreaker.BreakSeconds));
     }
 
-    // Backwards-compatible ctor used by Program.cs
+    // Backwards-compatible ctor used by Program.cs (kept for callers that pass host/port/timeout)
     public TcpIsoClient(string host, int port, TimeSpan timeout)
-        : this(new TcpIsoClientOptions { Host = host, Port = port, TimeoutMs = (int)timeout.TotalMilliseconds })
+        : this(
+            new TcpIsoClientOptions { Host = host, Port = port, TimeoutMs = (int)timeout.TotalMilliseconds },
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TcpIsoClient>.Instance)
     {
     }
 
@@ -63,15 +68,10 @@ public sealed class TcpIsoClient
                     }
                     catch (Exception ex)
                     {
-                        try
-                        {
-                            var raw = Convert.ToBase64String(packager.Encode(request));
-                            Console.WriteLine($"[ISO_CLIENT_ERROR] Failed to process ISO exchange: {ex.Message}. Request: {raw}");
-                        }
-                        catch (Exception encEx)
-                        {
-                            Console.WriteLine($"[ISO_CLIENT_ERROR] Failed to process ISO exchange: {ex.Message}. (Encode also failed: {encEx.Message})");
-                        }
+                        // SEC-5: log MTI and generic outcome only — never log encoded frame bytes
+                        _logger.LogWarning(ex,
+                            "ISO exchange failed mti={Mti} host={Host}:{Port}",
+                            request.Mti, _opt.Host, _opt.Port);
                         throw;
                     }
                 }
@@ -80,6 +80,10 @@ public sealed class TcpIsoClient
             {
                 last = ex;
                 _cb.OnFailure();
+                // SEC-5: log MTI and generic outcome only — never log payload bytes
+                _logger.LogWarning(ex,
+                    "ISO exchange failed mti={Mti} host={Host}:{Port} attempt={Attempt}/{Attempts}",
+                    request.Mti, _opt.Host, _opt.Port, i, attempts);
                 if (i == attempts) break;
                 // small backoff
                 await Task.Delay(TimeSpan.FromMilliseconds(150 * i), ct);
@@ -109,7 +113,10 @@ public sealed class TcpIsoClient
         if (respLen <= 0 || respLen > 65535) throw new InvalidOperationException("Invalid response length");
 
         var respPayload = await ReadExactAsync(stream, respLen, ct);
-        Console.WriteLine($"[ISO_CLIENT_DEBUG] Received response: {Convert.ToHexString(respPayload)}");
+
+        // SEC-5: log MTI only — never log raw response bytes (hex or Base64)
+        _logger.LogDebug("ISO response received mti={Mti}", request.Mti);
+
         return packager.Decode(respPayload);
     }
 

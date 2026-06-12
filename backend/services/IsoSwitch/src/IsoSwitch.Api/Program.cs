@@ -121,18 +121,25 @@ if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue("IsoSi
 }
 
 // ISO TCP client + connectors
+// ADR-3: inject ILogger<TcpIsoClient> — no raw ISO frame bytes reach any log sink (SEC-5)
+// ADR-7: AllowInvalidCert is permitted only in Development; production always validates certs
 builder.Services.AddSingleton(sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
-    var host = cfg.GetValue<string>("IsoClient:Host", "127.0.0.1");
-    var port = cfg.GetValue<int>("IsoClient:Port", 5000);
-    var timeoutMs = cfg.GetValue<int>("IsoClient:TimeoutMs", 3000);
-    return new TcpIsoClient(host, port, TimeSpan.FromMilliseconds(timeoutMs));
+    var logger = sp.GetRequiredService<ILogger<TcpIsoClient>>();
+
+    var opt = new TcpIsoClientOptions();
+    cfg.GetSection("IsoClient").Bind(opt);
+
+    // ADR-7: gate AllowInvalidCert — only honour the config value in Development
+    opt.AllowInvalidCert = builder.Environment.IsDevelopment() && opt.AllowInvalidCert;
+
+    return new TcpIsoClient(opt, logger);
 });
 builder.Services.AddScoped<RoutingEngine>();
 builder.Services.AddScoped<IRoutingEngineV2, RoutingEngineV2>();
 builder.Services.AddSingleton<IAcquirerConnector>(sp => new SimulatorConnector(sp.GetRequiredService<TcpIsoClient>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>()));
-builder.Services.AddSingleton<IAcquirerConnector>(sp => new TcpGatewayConnector(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>()));
+builder.Services.AddSingleton<IAcquirerConnector>(sp => new TcpGatewayConnector(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>(), sp.GetRequiredService<ILogger<TcpIsoClient>>()));
 // Registry by ConnectorId
 builder.Services.AddSingleton<ConnectorRegistry>();
 builder.Services.AddSingleton<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>();
