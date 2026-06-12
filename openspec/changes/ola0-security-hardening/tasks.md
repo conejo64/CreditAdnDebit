@@ -167,37 +167,38 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 **Goal**: No cardholder data or raw ISO bytes reach any log sink. Fold in `AllowInvalidCert=false` outside Dev (ADR-7). Spec ref: SEC-5.
 
 ### Task 3.1 — Write failing tests: failing exchange contains MTI only, no PAN/hex/Base64 (RED)
-- [ ] Create `IsoSwitch.Tests/Net/TcpIsoClientLoggingTests.cs`:
+- [x] Create `IsoSwitch.Tests/Net/TcpIsoClientLoggingTests.cs`:
   - `SendFailure_LogContainsMti_NotBase64Payload` — drive `SendAsync` to fail (TCP unavailable); capture `ILogger<TcpIsoClient>` via test sink; assert log message contains MTI string; assert no Base64 pattern (`[A-Za-z0-9+/]{20,}={0,2}`) in log entries
-  - `ReceiveFailure_LogContainsMti_NotHexBytes` — same for receive path; assert no hex pattern (`[0-9A-Fa-f]{20,}`) in log entries
-  - Use a capturing `ILogger` test double (e.g., `Microsoft.Extensions.Logging.Testing.FakeLogger` or custom collector)
+  - `SendFailure_LogContainsMti_NotHexBytes` — same, assert no hex pattern (`[0-9A-Fa-f]{20,}`) in log entries
+  - Uses a capturing `ILogger<TcpIsoClient>` test double (LogCollector inner class)
+  - Commit 5ec7942: RED — compile error proved new ctor signature missing before implementation
 - **Spec ref**: SEC-5 scenarios
 
 ### Task 3.2 — Add `ILogger<TcpIsoClient>` ctor parameter + DI factory update (GREEN)
-- [ ] Modify `IsoSwitch.Infrastructure.SwitchIso8583/Net/TcpIsoClient.cs`:
+- [x] Modify `IsoSwitch.Infrastructure.SwitchIso8583/Net/TcpIsoClient.cs`:
   - Add `ILogger<TcpIsoClient> logger` parameter to primary ctor
-  - Replace `Console.WriteLine(Convert.ToBase64String(...))` at line 69 with `_logger.LogWarning("ISO exchange failed mti={Mti} trace={TraceId}", request.Mti, ...)` — no payload bytes
-  - Replace `Console.WriteLine(Convert.ToHexString(respPayload))` at line 112 with `_logger.LogWarning("ISO receive failed mti={Mti}", ...)` — no hex bytes
-- [ ] Modify `IsoSwitch.Api/Program.cs` DI factory (lines 117-124):
-  ```csharp
-  builder.Services.AddSingleton(sp => new TcpIsoClient(
-      BuildOptions(sp.GetRequiredService<IConfiguration>()),
-      sp.GetRequiredService<ILogger<TcpIsoClient>>()));
-  ```
+  - Replace `Console.WriteLine(Convert.ToBase64String(...))` with `_logger.LogWarning("ISO exchange failed mti={Mti} host={Host}:{Port}", ...)` — no payload bytes
+  - Replace `Console.WriteLine(Convert.ToHexString(respPayload))` with `_logger.LogDebug("ISO response received mti={Mti}", ...)` — no hex bytes
+  - Also log on transient connection failures (SocketException path)
+  - NullLogger fallback for backward-compat (host, port, timeout) ctor
+- [x] Modify `IsoSwitch.Api/Program.cs` DI factory: bind IsoClient config section, inject ILogger<TcpIsoClient>, gate AllowInvalidCert
 - **Spec ref**: SEC-5; ADR-3
 
 ### Task 3.3 — Update `SimulatorConnector` and `TcpGatewayConnector` to pass logger (GREEN)
-- [ ] Modify `IsoSwitch.Infrastructure.SwitchIso8583/Connectors/SimulatorConnector.cs`: add `ILogger<TcpIsoClient>` to ctor; forward to `TcpIsoClient` construction
-- [ ] Modify `IsoSwitch.Infrastructure.SwitchIso8583/Connectors/TcpGatewayConnector.cs`: same
-- **Spec ref**: ADR-3; Codebase Reality #3 (both connectors `new` TcpIsoClient directly)
+- [x] `SimulatorConnector` receives `TcpIsoClient` via DI — no constructor change needed (logger already injected at factory level)
+- [x] Modify `IsoSwitch.Infrastructure.SwitchIso8583/Connectors/TcpGatewayConnector.cs`: added `ILogger<TcpIsoClient>` ctor param; pass to `TcpIsoClient(opt, logger)` construction
+- [x] Updated Program.cs factory line for `TcpGatewayConnector` to resolve and pass `ILogger<TcpIsoClient>`
+- **Spec ref**: ADR-3; Codebase Reality #3
 
 ### Task 3.4 — Fold in `AllowInvalidCert=false` outside Development (ADR-7)
-- [ ] In the DI factory from 3.2, set `AllowInvalidCert = builder.Environment.IsDevelopment() && configuredValue`
-- [ ] Remove `AllowInvalidCert=true` from `IsoSwitch.Api/appsettings.json` (or gate it behind `appsettings.Development.json`)
+- [x] DI factory: `opt.AllowInvalidCert = builder.Environment.IsDevelopment() && opt.AllowInvalidCert` — enforced at factory level
+- [x] `TcpIsoClientOptions`: default `AllowInvalidCert = false` (explicit opt-in required)
+- [x] `appsettings.json`: set `AllowInvalidCert = false` in `Connectors:TcpGateway`; `appsettings.Development.json` retains `AllowInvalidCert = true` for dev only
 - **Spec ref**: ADR-7 (P2 fold-in); Codebase Reality #4
 
 ### Task 3.5 — Verify GREEN: S3 tests pass, S1+S2 still green
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm no Console.WriteLine PAN/hex paths remain
+- [x] `dotnet test backend/CardSwitchPlatform.sln` — 638 total: IsoSwitch 51 (+2 S3), IsoAudit 16, CardVault 571. All pass.
+- [x] Confirmed: no Console.WriteLine in TcpIsoClient.cs; AllowInvalidCert gated outside Development
 - **Spec ref**: SEC-5 success criteria
 
 ---
