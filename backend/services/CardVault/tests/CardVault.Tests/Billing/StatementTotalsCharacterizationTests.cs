@@ -301,8 +301,8 @@ public sealed class StatementTotalsCharacterizationTests : IDisposable
 
     /// <summary>
     /// Invokes private static SwitchTxnConsumer.UpdateOpenStatementAsync via reflection.
-    /// Signature: (CardVaultDbContext db, MinimumPaymentService minPay,
-    ///             Guid accountId, DateTimeOffset postedOn, CancellationToken ct)
+    /// Signature (post-refactor): (CardVaultDbContext db, MinimumPaymentService minPay,
+    ///             BillingService billing, Guid accountId, DateTimeOffset postedOn, CancellationToken ct)
     /// </summary>
     private static async Task InvokeUpdateOpenStatementAsync(
         CardVaultDbContext db,
@@ -311,17 +311,19 @@ public sealed class StatementTotalsCharacterizationTests : IDisposable
         DateTimeOffset postedOn,
         CancellationToken ct)
     {
+        var billingService = BuildBillingService(db);
+
         var method = typeof(SwitchTxnConsumer).GetMethod(
             "UpdateOpenStatementAsync",
             BindingFlags.NonPublic | BindingFlags.Static,
             binder: null,
-            types: [typeof(CardVaultDbContext), typeof(MinimumPaymentService), typeof(Guid), typeof(DateTimeOffset), typeof(CancellationToken)],
+            types: [typeof(CardVaultDbContext), typeof(MinimumPaymentService), typeof(BillingService), typeof(Guid), typeof(DateTimeOffset), typeof(CancellationToken)],
             modifiers: null);
 
         method.Should().NotBeNull(
-            "SwitchTxnConsumer must have a private static UpdateOpenStatementAsync(db, minPay, accountId, postedOn, ct) method");
+            "SwitchTxnConsumer must have a private static UpdateOpenStatementAsync(db, minPay, billing, accountId, postedOn, ct) method");
 
-        var task = (Task)method!.Invoke(null, [db, minPay, accountId, postedOn, ct])!;
+        var task = (Task)method!.Invoke(null, [db, minPay, billingService, accountId, postedOn, ct])!;
         await task;
     }
 }

@@ -122,13 +122,7 @@ public sealed class BillingService
         // v37/v38 buckets + minimum
         st.InterestAccrued = interest;
         st.LateFeeAmount = 0m;
-        st.InterestDue = st.InterestAccrued;
-        // v40 - FeesDue includes all fees in cycle (overlimit/annual/cash-advance/late fees)
-        st.FeesDue = st.Fees;
-        st.PrincipalDue = Math.Max(0, st.NewBalance - st.InterestDue - st.FeesDue);
-
-        st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
-        st.NewBalance = st.TotalPaymentDue;
+        ApplyClosingTotals(st);
 
         var mpPolicy = await _minPay.GetDefaultAsync(ct);
         st.MinimumPayment = _minPay.CalculateMinimum(st, mpPolicy);
@@ -290,5 +284,23 @@ public sealed class BillingService
     public async Task<List<StatementEntity>> GetStatementsForAccountAsync(Guid accountId, int take, CancellationToken ct)
     {
         return await _db.Statements.AsNoTracking().Where(x => x.AccountId == accountId).OrderByDescending(x => x.StatementDate).Take(take).ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Applies the closing-totals formula to an already-populated statement entity.
+    /// Caller is responsible for setting InterestAccrued and Fees (+ NewBalance for the
+    /// consumer path) before calling this method.
+    ///
+    /// ADR-6: single source of truth for the terminal bucket-to-totals formula used by
+    /// both GenerateStatementAsync and SwitchTxnConsumer.UpdateOpenStatementAsync.
+    /// </summary>
+    internal void ApplyClosingTotals(StatementEntity st)
+    {
+        st.InterestDue = st.InterestAccrued;
+        // v40 - FeesDue includes all fees in cycle (overlimit/annual/cash-advance/late fees)
+        st.FeesDue = st.Fees;
+        st.PrincipalDue = Math.Max(0, st.NewBalance - st.InterestDue - st.FeesDue);
+        st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
+        st.NewBalance = st.TotalPaymentDue;
     }
 }

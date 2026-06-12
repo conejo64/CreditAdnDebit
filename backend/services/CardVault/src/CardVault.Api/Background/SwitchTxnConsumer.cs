@@ -333,7 +333,8 @@ public sealed class SwitchTxnConsumer : BackgroundService
         {
             var db = scope.ServiceProvider.GetRequiredService<CardVaultDbContext>();
             var minPay = scope.ServiceProvider.GetRequiredService<MinimumPaymentService>();
-            await UpdateOpenStatementAsync(db, minPay, accountId, postedOn, ct);
+            var billing = scope.ServiceProvider.GetRequiredService<BillingService>();
+            await UpdateOpenStatementAsync(db, minPay, billing, accountId, postedOn, ct);
         }
         catch (Exception ex)
         {
@@ -343,6 +344,7 @@ public sealed class SwitchTxnConsumer : BackgroundService
 
     private static async Task UpdateOpenStatementAsync(CardVaultDbContext db,
         MinimumPaymentService minPay,
+        BillingService billing,
         Guid accountId,
         DateTimeOffset postedOn,
         CancellationToken ct)
@@ -383,14 +385,12 @@ public sealed class SwitchTxnConsumer : BackgroundService
         st.Interest = cycleEntries.Where(x => x.Type == LedgerEntryType.Interest).Sum(x => x.Amount);
 
         st.InterestAccrued = st.Interest;
-        st.InterestDue = st.InterestAccrued;
-        st.FeesDue = st.Fees;
 
+        // ADR-6: delegate terminal bucket-to-totals formula to BillingService.ApplyClosingTotals.
+        // Consumer sets NewBalance to computedBalance first so both paths feed identical input.
         var computedBalance = st.PreviousBalance + st.Purchases + st.Payments + st.Fees + st.Interest;
-        st.PrincipalDue = Math.Max(0, computedBalance - st.InterestDue - st.FeesDue);
-
-        st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
-        st.NewBalance = st.TotalPaymentDue;
+        st.NewBalance = computedBalance;
+        billing.ApplyClosingTotals(st);
 
         var mp = await minPay.GetDefaultAsync(ct);
         st.MinimumPayment = minPay.CalculateMinimum(st, mp);
