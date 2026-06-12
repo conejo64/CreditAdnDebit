@@ -23,8 +23,11 @@ public sealed class IsoAuditWebApplicationFactory : WebApplicationFactory<Progra
     {
         builder.UseEnvironment("Development");
 
-        // Inject a valid test secret so startup validation passes by default
+        // Inject valid test JWT settings so startup validation passes by default.
+        // Issuer/Audience match CardVault's TokenService output (ADR-2, Task 2.2).
         builder.UseSetting("Jwt:Key", TestJwtKey);
+        builder.UseSetting("Jwt:Issuer", "CardVault");
+        builder.UseSetting("Jwt:Audience", "CardSwitch");
 
         builder.ConfigureTestServices(services =>
         {

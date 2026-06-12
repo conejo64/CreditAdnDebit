@@ -126,7 +126,7 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 **CRITICAL COORDINATION**: Before writing any JWT validation code, read `CardVault.Api/Services/TokenService.cs` to find the EXACT `Issuer` and `Audience` strings it stamps into tokens. Pin those values in `IsoAudit/appsettings.json` as `Jwt:Issuer` and `Jwt:Audience`. If `TokenService` uses a config-driven value, trace it to `CardVault/appsettings.json`. Wrong values here will cause `ValidateIssuer/Audience=true` to reject every legitimate token.
 
 ### Task 2.1 — Write failing tests: wrong issuer/audience → 401 and HTTPS metadata gating (RED)
-- [ ] Create `IsoAudit.Tests/Security/JwtHardeningTests.cs`:
+- [x] Create `IsoAudit.Tests/Security/JwtHardeningTests.cs`:
   - `WrongIssuer_Returns401` — issue token with `issuer="wrong-issuer"` (valid key, valid audience) → `GET /api/audit/logs` → 401
   - `WrongAudience_Returns401` — issue token with `audience="wrong-audience"` → 401
   - `DevelopmentEnv_RequireHttpsMetadata_IsFalse` — assert `TokenValidationParameters.RequireHttpsMetadata == false` when env=Development
@@ -134,13 +134,14 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 - **Spec ref**: SEC-4 all scenarios
 
 ### Task 2.2 — Read `CardVault` `TokenService` issuer/audience + pin config (GREEN foundation)
-- [ ] Open `CardVault.Api/Services/TokenService.cs` and record the exact `Issuer` and `Audience` values used in `JwtSecurityToken` construction
-- [ ] Add `Jwt:Issuer` and `Jwt:Audience` entries to `IsoAudit.Api/appsettings.json` matching those exact values
-- [ ] Add `Jwt:Issuer` and `Jwt:Audience` to `.env.example` for IsoAudit
+- [x] Open `CardVault.Api/Services/TokenService.cs` and record the exact `Issuer` and `Audience` values used in `JwtSecurityToken` construction
+- [x] Add `Jwt:Issuer` and `Jwt:Audience` entries to `IsoAudit.Api/appsettings.json` matching those exact values
+- [x] Add `Jwt:Issuer` and `Jwt:Audience` to `.env.example` for IsoAudit
 - **Spec ref**: ADR-2; cross-service coordination gap flagged in design
+- **Verified**: CardVault stamps issuer="CardVault", audience="CardSwitch" (from JwtOptions defaults in appsettings.json; TokenService reads _opt.Issuer/_opt.Audience)
 
 ### Task 2.3 — Update `IsoAudit.Api/Program.cs` JWT validation params (GREEN)
-- [ ] Replace inline `Jwt:Key` read with `IOptions<JwtOptions>` (from S1); set:
+- [x] Replace inline `Jwt:Key` read with `IOptions<JwtOptions>` (from S1); set:
   ```csharp
   ValidateIssuer = true,
   ValidIssuer = jwtOpts.Issuer,
@@ -149,11 +150,14 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
   ValidateLifetime = true,
   RequireHttpsMetadata = !builder.Environment.IsDevelopment()
   ```
-- [ ] Remove stale `?? "DEV_ONLY..."` if any remains from S1 (should be clean)
+- [x] Remove stale `?? "DEV_ONLY..."` if any remains from S1 (should be clean)
+- **Also fixed**: W-2 from S1 verify — IssuerSigningKey now comes from IOptions<JwtOptions> via AddOptions<JwtBearerOptions>().Configure<IOptions<JwtOptions>, IHostEnvironment>() PostConfigure pattern (true DI, evaluated after app.Build()).
+- **Also fixed**: DB init now guards MigrateAsync with provider-name check (ProviderName.Contains("InMemory")) so test environments using Production env name work correctly.
 - **Spec ref**: ADR-2; SEC-4
 
 ### Task 2.4 — Verify GREEN: S2 tests pass, S1 tests still green
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm ≥596 + S1 + S2 tests green
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm ≥596 + S1 + S2 tests green
+- **Result**: 636 total — IsoAudit: 16 (+4 new), IsoSwitch: 49, CardVault: 571. All pass.
 - **Spec ref**: SEC-4 success criteria
 
 ---
