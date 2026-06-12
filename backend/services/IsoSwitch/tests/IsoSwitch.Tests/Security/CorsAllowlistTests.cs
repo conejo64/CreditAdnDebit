@@ -37,10 +37,11 @@ public class CorsAllowlistTests
         var response = await client.SendAsync(request);
 
         // Assert: evil origin must NOT receive a CORS header
+        var hasAcaoHeader = response.Headers.Contains("Access-Control-Allow-Origin");
         Assert.False(
-            response.Headers.Contains("Access-Control-Allow-Origin"),
+            hasAcaoHeader,
             $"Expected NO Access-Control-Allow-Origin header for evil origin '{EvilOrigin}', " +
-            $"but the response contained: {string.Join(", ", response.Headers.GetValues("Access-Control-Allow-Origin"))}");
+            $"but the response contained: {(hasAcaoHeader ? string.Join(", ", response.Headers.GetValues("Access-Control-Allow-Origin")) : "(none)")}");
     }
 
     [Fact(DisplayName = "Allowlisted origin: Access-Control-Allow-Origin echoes the origin")]
