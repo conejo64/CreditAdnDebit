@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using IsoSwitch.Infrastructure.SwitchIso8583.Net;
 
@@ -15,14 +16,14 @@ public sealed class TcpGatewayConnector : IAcquirerConnector
     private readonly TcpIsoClient _client;
     private readonly PackagerRegistry _packagers;
 
-    public TcpGatewayConnector(IConfiguration cfg, PackagerRegistry packagers)
+    public TcpGatewayConnector(IConfiguration cfg, PackagerRegistry packagers, ILogger<TcpIsoClient> logger)
     {
         _packagers = packagers;
 
         var opt = new TcpIsoClientOptions();
         cfg.GetSection("Connectors:TcpGateway").Bind(opt);
 
-        _client = new TcpIsoClient(opt);
+        _client = new TcpIsoClient(opt, logger);
     }
 
     public Task<IsoMessage> AuthorizeAsync(IsoMessage request, CancellationToken ct)
