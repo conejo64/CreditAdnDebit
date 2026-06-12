@@ -40,41 +40,41 @@ Chain strategy: stacked-to-main
 before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
 
 ### Task 1.1 — CI/dev secret provisioning scaffold (PREREQUISITE — do first)
-- [ ] Create `.env.example` at repo root listing required keys per service:
+- [x] Create `.env.example` at repo root listing required keys per service:
   - `Jwt__SigningKey` (CardVault, ≥32 chars)
   - `Tokenization__Secret` (IsoSwitch, ≥32 chars)
   - `Jwt__Key` (IsoAudit, ≥32 chars, mapped to `Jwt:Key`)
-- [ ] Add README note (or `docs/secrets.md`) explaining `dotnet user-secrets set` workflow for dev and CI env-var pattern
-- [ ] Verify CI pipeline can set those env vars BEFORE `dotnet test` runs (document in README; do NOT gate merge on pipeline green until S1 tests are merged — this task just prepares the scaffold)
+- [x] Add README note (or `docs/secrets.md`) explaining `dotnet user-secrets set` workflow for dev and CI env-var pattern
+- [x] Verify CI pipeline can set those env vars BEFORE `dotnet test` runs (document in README; do NOT gate merge on pipeline green until S1 tests are merged — this task just prepares the scaffold)
 - **Spec ref**: SEC-1/2/3 risk mitigation; ADR-1 (#1 risk)
 
 ### Task 1.2 — Write failing tests: host refuses to start on missing/DEV secret (RED)
-- [ ] Create `CardVault.Tests/Security/StartupSecretValidationTests.cs`:
+- [x] Create `CardVault.Tests/Security/StartupSecretValidationTests.cs`:
   - `CardVault_MissingJwtSigningKey_ThrowsOnStart`
   - `CardVault_DevPlaceholderSigningKey_ThrowsOnStart`
   - `CardVault_ValidSigningKey_StartsSuccessfully`
   - Use `WebApplicationFactory<CardVault.Api.Program>` overriding config; assert host build throws `OptionsValidationException`
-- [ ] Create `IsoSwitch.Tests/Security/StartupSecretValidationTests.cs`:
+- [x] Create `IsoSwitch.Tests/Security/StartupSecretValidationTests.cs`:
   - `IsoSwitch_MissingTokenizationSecret_ThrowsOnStart`
   - `IsoSwitch_DevPlaceholderSecret_ThrowsOnStart`
   - `IsoSwitch_ValidTokenizationSecret_StartsSuccessfully`
-- [ ] Create `IsoAudit.Tests/Security/StartupSecretValidationTests.cs`:
+- [x] Create `IsoAudit.Tests/Security/StartupSecretValidationTests.cs`:
   - `IsoAudit_MissingJwtKey_ThrowsOnStart`
   - `IsoAudit_DevPlaceholderJwtKey_ThrowsOnStart`
   - `IsoAudit_ValidJwtKey_StartsSuccessfully`
 - **Spec ref**: SEC-1 scenarios, SEC-2 scenarios, SEC-3 scenarios
 
 ### Task 1.3 — Write failing tests: validator unit matrix (RED)
-- [ ] Create `CardVault.Tests/Security/JwtOptionsValidatorTests.cs`:
+- [x] Create `CardVault.Tests/Security/JwtOptionsValidatorTests.cs`:
   - Empty string → Fail; 31-char → Fail; `DEV_ONLY_change_me_please_32+chars` → Fail; valid 32+ random → Success
-- [ ] Create `IsoSwitch.Tests/Security/TokenizationOptionsValidatorTests.cs`:
+- [x] Create `IsoSwitch.Tests/Security/TokenizationOptionsValidatorTests.cs`:
   - Empty → Fail; 31-char → Fail; `DEV_ONLY_CHANGE_ME` → Fail; `CHANGE_ME_...` → Fail; valid 32+ → Success
-- [ ] Create `IsoAudit.Tests/Security/JwtOptionsValidatorTests.cs`:
+- [x] Create `IsoAudit.Tests/Security/JwtOptionsValidatorTests.cs`:
   - Same matrix for `DEV_ONLY_CHANGE_ME_32CHARS_MINIMUM` placeholder
 - **Spec ref**: ADR-1 validator matrix
 
 ### Task 1.4 — Create `TokenizationOptions` + `IsoAudit` `JwtOptions` (GREEN foundation)
-- [ ] Create `IsoSwitch.Api/Security/TokenizationOptions.cs`:
+- [x] Create `IsoSwitch.Api/Security/TokenizationOptions.cs`:
   ```csharp
   public sealed class TokenizationOptions
   {
@@ -83,38 +83,38 @@ before Slice 1 lands. Spec refs: SEC-1, SEC-2, SEC-3.
       public string Secret { get; set; } = string.Empty;
   }
   ```
-- [ ] Create `IsoAudit.Api/Security/JwtOptions.cs` (minimal: `Key`, `Issuer`, `Audience` properties; no DEV default)
+- [x] Create `IsoAudit.Api/Security/JwtOptions.cs` (minimal: `Key`, `Issuer`, `Audience` properties; no DEV default)
 - **Spec ref**: ADR-1
 
 ### Task 1.5 — Create `IValidateOptions<T>` validators for all 3 secrets (GREEN)
-- [ ] Create `CardVault.Api/Security/JwtOptionsValidator.cs` — rejects `Forbidden` substrings (`DEV_ONLY`, `CHANGE_ME`, `change_me`, `placeholder`) and length < 32
-- [ ] Create `IsoSwitch.Api/Security/TokenizationOptionsValidator.cs` — same pattern for `TokenizationOptions.Secret`
-- [ ] Create `IsoAudit.Api/Security/JwtOptionsValidator.cs` — same pattern for `IsoAudit` `JwtOptions.Key`
+- [x] Create `CardVault.Api/Security/JwtOptionsValidator.cs` — rejects `Forbidden` substrings (`DEV_ONLY`, `CHANGE_ME`, `change_me`, `placeholder`) and length < 32
+- [x] Create `IsoSwitch.Api/Security/TokenizationOptionsValidator.cs` — same pattern for `TokenizationOptions.Secret`
+- [x] Create `IsoAudit.Api/Security/JwtOptionsValidator.cs` — same pattern for `IsoAudit` `JwtOptions.Key`
 - **Spec ref**: ADR-1
 
 ### Task 1.6 — Wire options + ValidateOnStart in all 3 `Program.cs` files (GREEN)
-- [ ] `CardVault.Api/Program.cs`: remove DEV default from `JwtOptions.SigningKey` (set `= string.Empty`); add:
+- [x] `CardVault.Api/Program.cs`: remove DEV default from `JwtOptions.SigningKey` (set `= string.Empty`); add:
   ```csharp
   builder.Services.AddOptions<JwtOptions>().BindConfiguration("Jwt")
       .ValidateDataAnnotations().ValidateOnStart();
   builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
   ```
-- [ ] `IsoSwitch.Api/Program.cs`: wire `TokenizationOptions` + validator; remove `??` in `TokenPanService` registration
-- [ ] `IsoAudit.Api/Program.cs`: wire `JwtOptions` + validator; remove inline `?? "DEV_ONLY..."` at line 23
+- [x] `IsoSwitch.Api/Program.cs`: wire `TokenizationOptions` + validator; remove `??` in `TokenPanService` registration
+- [x] `IsoAudit.Api/Program.cs`: wire `JwtOptions` + validator; remove inline `?? "DEV_ONLY..."` at line 23
 - **Spec ref**: ADR-1
 
 ### Task 1.7 — Update `TokenPanService` to inject `IOptions<TokenizationOptions>` (GREEN)
-- [ ] Modify `IsoSwitch.Api/Security/TokenPanService.cs`: change ctor from `IConfiguration` to `IOptions<TokenizationOptions>`; remove `?? "DEV_ONLY_CHANGE_ME"` null-coalesce
+- [x] Modify `IsoSwitch.Api/Security/TokenPanService.cs`: change ctor from `IConfiguration` to `IOptions<TokenizationOptions>`; remove `?? "DEV_ONLY_CHANGE_ME"` null-coalesce
 - **Spec ref**: ADR-1, Codebase Reality #2
 
 ### Task 1.8 — Clean committed placeholder secrets from `appsettings*.json` (GREEN)
-- [ ] `CardVault.Api/appsettings.json` / `appsettings.Development.json`: remove `Jwt:SigningKey` placeholder value (leave key absent or empty comment)
-- [ ] `IsoSwitch.Api/appsettings.json`: remove `Tokenization:Secret` placeholder; leave `Tokenization:{}` section skeleton
-- [ ] `IsoAudit.Api/appsettings.json`: remove `Jwt:Key` placeholder
+- [x] `CardVault.Api/appsettings.json` / `appsettings.Development.json`: remove `Jwt:SigningKey` placeholder value (leave key absent or empty comment)
+- [x] `IsoSwitch.Api/appsettings.json`: remove `Tokenization:Secret` placeholder; leave `Tokenization:{}` section skeleton
+- [x] `IsoAudit.Api/appsettings.json`: remove `Jwt:Key` placeholder
 - **Spec ref**: ADR-1 (#1 risk; placeholder removal is non-negotiable)
 
 ### Task 1.9 — Verify GREEN: all S1 tests pass, baseline preserved
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm ≥596 + new S1 tests green
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln`; confirm ≥596 + new S1 tests green
 - **Spec ref**: Success criterion — no DEV literal remains; host refuses to start
 
 ---
