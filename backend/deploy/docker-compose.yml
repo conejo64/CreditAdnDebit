@@ -50,6 +50,10 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
+      # W-1 fix: a single shared .env cannot hold two different Postgres databases.
+      # .env carries ConnectionStrings__Postgres=isoswitch (for IsoSwitch, no override).
+      # CardVault overrides here to its own DB, matching the Kafka override pattern.
+      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres;Password=postgres
     depends_on:
       - postgres
       - sqlserver
