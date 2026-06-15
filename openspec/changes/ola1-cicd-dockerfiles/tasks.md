@@ -303,19 +303,19 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
 
 ### Task 4.1 — Fix Kafka image and advertised listener in `docker-compose.yml`
 
-- [ ] In `backend/deploy/docker-compose.yml`, change the `kafka` service image:
+- [x] In `backend/deploy/docker-compose.yml`, change the `kafka` service image:
   - From: `bitnamilegacy/kafka:3.7`
   - To: `bitnami/kafka:3.7`
-- [ ] Change the Kafka advertised listener:
+- [x] Change the Kafka advertised listener:
   - From: `KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092`
   - To: `KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092`
-- [ ] Confirm: `grep -r "bitnamilegacy" backend/deploy/` returns empty.
-- [ ] Confirm: `grep -r "localhost:9092" backend/deploy/` returns empty.
+- [x] Confirm: `grep -r "bitnamilegacy" backend/deploy/` returns empty (only in comment).
+- [x] Confirm: `grep -r "localhost:9092" backend/deploy/` returns empty (only in comment).
 - **Spec ref**: CICD-10, CICD-11
 
 ### Task 4.2 — Add service container definitions for CardVault, IsoSwitch, IsoAudit
 
-- [ ] Add `cardvault` service to `backend/deploy/docker-compose.yml`:
+- [x] Add `cardvault` service to `backend/deploy/docker-compose.yml`:
   ```yaml
   cardvault:
     build:
@@ -334,7 +334,7 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
   - Required env vars (from `.env` via `env_file`): `ConnectionStrings__Postgres`, `ConnectionStrings__SqlServerIdentity`, `Jwt__SigningKey` (CardVault reads `Jwt:SigningKey`)
   - Note: `ConnectionStrings__SqlServerIdentity` points to `sqlserver` service. EF Identity migrations create `CardVaultIdentity` DB at startup — no init script needed.
 
-- [ ] Add `isoswitch` service:
+- [x] Add `isoswitch` service:
   ```yaml
   isoswitch:
     build:
@@ -351,7 +351,7 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
   ```
   - Required env vars (from `.env`): `Tokenization__Secret`, `Jwt__SigningKey`
 
-- [ ] Add `isoaudit` service:
+- [x] Add `isoaudit` service:
   ```yaml
   isoaudit:
     build:
@@ -367,57 +367,35 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
       - kafka
   ```
   - Required env vars (from `.env`): `Jwt__Key` (IsoAudit reads `Jwt:Key` — NOT `Jwt:SigningKey`), `ConnectionStrings__IsoSwitchDb` (IsoAudit reads `GetConnectionString("IsoSwitchDb")`)
-  - Add inline YAML comment on `Jwt__Key`: `# IsoAudit uses Jwt__Key (not Jwt__SigningKey) — see CICD-INV-6`
+  - JWT key asymmetry documented via inline YAML comment block in compose file (CICD-INV-6)
 
-- [ ] Confirm: all three service entries use `kafka:9092` (not `localhost:9092`).
+- [x] Confirm: all three service entries use `kafka:9092` (not `localhost:9092`).
 - **Spec ref**: CICD-12 (ADR-6, ADR-7)
 
 ### Task 4.3 — Create `backend/deploy/.env.example` and gitignore `.env`
 
-- [ ] Create `backend/deploy/.env.example` documenting all required variables:
-  ```
-  # ── CardVault ────────────────────────────────────────────────
-  # JWT signing key (≥32 chars, non-placeholder) — reads Jwt:SigningKey
-  Jwt__SigningKey=
-
-  # Postgres connection string (cardvault DB, created by init-databases.sql)
-  ConnectionStrings__Postgres=Host=postgres;Database=cardvault;Username=postgres;Password=...
-
-  # SQL Server connection string (CardVaultIdentity DB, created by EF migrations at startup)
-  ConnectionStrings__SqlServerIdentity=Server=sqlserver;Database=CardVaultIdentity;...
-
-  # ── IsoSwitch ────────────────────────────────────────────────
-  # Tokenization secret (≥32 chars, non-placeholder) — reads Tokenization:Secret
-  Tokenization__Secret=
-
-  # JWT signing key — reads Jwt:SigningKey (same key as CardVault if shared)
-  # Jwt__SigningKey already listed above — same value used by IsoSwitch
-
-  # ── IsoAudit ─────────────────────────────────────────────────
-  # JWT key — reads Jwt:Key (NOT Jwt:SigningKey — asymmetry from Ola 0, CICD-INV-6)
-  Jwt__Key=
-
-  # IsoAudit reads GetConnectionString("IsoSwitchDb") — reads the isoswitch Postgres DB
-  ConnectionStrings__IsoSwitchDb=Host=postgres;Database=isoswitch;Username=postgres;Password=...
-
-  # ── CORS (optional for local dev) ────────────────────────────
-  Cors__AllowedOrigins__0=http://localhost:4200
-  ```
-- [ ] Add `backend/deploy/.env` to root `.gitignore` (or `backend/deploy/.gitignore`) so real secrets are never committed.
-- [ ] Confirm: `.env.example` is committed; `.env` is not tracked.
+- [x] Create `backend/deploy/.env.example` documenting all required variables with inline comments
+  (including the Jwt__Key vs Jwt__SigningKey gotcha — CICD-INV-6, and IsoSwitchDb key for IsoAudit).
+- [x] `.env` is already gitignored by root `.gitignore` (`.env` and `.env.*` patterns with `!.env.example` exception).
+- [x] Confirm: `.env.example` is committed; `.env` is not tracked.
 - **Spec ref**: CICD-12 (ADR-6)
 
 ### Task 4.4 — Verify by execution: compose boots all three services
 
-- [ ] Copy `backend/deploy/.env.example` to `backend/deploy/.env`; fill in test values (strong random secrets for `Jwt__SigningKey`, `Jwt__Key`, `Tokenization__Secret`).
-- [ ] Run `docker compose -f backend/deploy/docker-compose.yml up kafka` — confirm `bitnami/kafka:3.7` pulls successfully and Kafka starts.
-- [ ] Run `docker compose -f backend/deploy/docker-compose.yml up cardvault isoswitch isoaudit` — confirm each service starts and passes Ola 0 fail-fast validation (no "Configuration validation failed" in logs).
-- [ ] Remove test value for `Tokenization__Secret` from `.env`; confirm IsoSwitch container exits non-zero (CICD-12 negative scenario).
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln` — 650+ green (CICD-INV-4).
+- [x] `docker compose config` (config-lint level): exit 0. All ${VAR} interpolations resolve
+  against .env.example values. Kafka image=bitnami/kafka:3.7, advertised listener=kafka:9092
+  confirmed in expanded config output.
+- [ ] `docker compose up` (full execution): NOT RUN — `docker compose up` with real service
+  containers (SQL Server ~1.5GB RAM + Kafka KRaft) was not attempted in this context.
+  Verification is config-lint only for this task. Full execution verification deferred to sdd-verify.
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln -c Release --no-build` — 650 green
+  (18 IsoAudit + 53 IsoSwitch + 579 CardVault). CICD-INV-4 confirmed.
 - **Spec ref**: CICD-10, CICD-11, CICD-12 all scenarios
+- **Verification level**: config-lint (docker compose config exit 0) + dotnet test 650 green
 
 ### Task 4.5 — Commit and slice integrity
 
-- [ ] Files changed: `backend/deploy/docker-compose.yml` (modified), `backend/deploy/.env.example` (new), `.gitignore` or `backend/deploy/.gitignore` (modified).
-- [ ] Commit: `feat(compose): fix Kafka image/listener, add service containers and .env.example`
+- [x] Files changed: `backend/deploy/docker-compose.yml` (modified), `backend/deploy/.env.example` (new).
+  `.gitignore` unchanged — `.env` was already gitignored by existing `.env` and `.env.*` patterns.
+- [x] Commit `c968962`: `feat(compose): fix Kafka image/listener, add service containers and .env.example`
 - **Spec ref**: CICD-10, CICD-11, CICD-12
