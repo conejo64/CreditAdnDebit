@@ -247,7 +247,7 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
 
 ### Task 3.1 — Create `frontend/src/environments/environment.prod.ts`
 
-- [ ] Create `frontend/src/environments/environment.prod.ts`:
+- [x] Create `frontend/src/environments/environment.prod.ts`:
   ```typescript
   export const environment = {
     production: true,
@@ -255,14 +255,14 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
     isoSwitchUrl: 'https://api.example.com/isoswitch/api'
   };
   ```
-- [ ] Confirm: neither `apiUrl` nor `isoSwitchUrl` contains `http://localhost`.
-- [ ] Confirm: `frontend/src/environments/environment.ts` (dev) is NOT modified (CICD-INV-2).
+- [x] Confirm: neither `apiUrl` nor `isoSwitchUrl` contains `http://localhost`.
+- [x] Confirm: `frontend/src/environments/environment.ts` (dev) is NOT modified (CICD-INV-2).
 - **Spec ref**: CICD-9
 
 ### Task 3.2 — Add `fileReplacements` to `angular.json` production configuration
 
-- [ ] Open `frontend/angular.json`.
-- [ ] Under `projects.card-switch-portal.architect.build.configurations.production`, add:
+- [x] Open `frontend/angular.json`.
+- [x] Under `projects.card-switch-portal.architect.build.configurations.production`, add:
   ```json
   "fileReplacements": [
     {
@@ -271,23 +271,23 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
     }
   ]
   ```
-- [ ] Confirm `defaultConfiguration` is already `"production"` (do not change it).
-- [ ] Confirm the `development` configuration is untouched.
+- [x] Confirm `defaultConfiguration` is already `"production"` (do not change it).
+- [x] Confirm the `development` configuration is untouched.
 - **Spec ref**: CICD-9 (ADR-4)
 
 ### Task 3.3 — Verify: prod bundle has no localhost references
 
-- [ ] Run `ng build --configuration production` from `frontend/` (or `npm run build --prefix frontend`).
-- [ ] Confirm build exits with code 0 and produces `frontend/dist/`.
-- [ ] Grep: confirm `frontend/dist/` does NOT contain `localhost:5101` or `localhost:5201`.
+- [x] Run `ng build --configuration production` from `frontend/` (or `npm run build --prefix frontend`).
+- [x] Confirm build exits with code 0 and produces `frontend/dist/`.
+- [x] Grep: confirm `frontend/dist/` does NOT contain `localhost:5101` or `localhost:5201`.
 - [ ] Confirm: `ng serve` (dev) still works and uses `environment.ts` localhost URLs (CICD-INV-2).
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln` — 650+ green (CICD-INV-4).
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln` — 650+ green (CICD-INV-4).
 - **Spec ref**: CICD-9 all scenarios
 
 ### Task 3.4 — Commit and slice integrity
 
-- [ ] Files changed: `frontend/src/environments/environment.prod.ts` (new), `frontend/angular.json` (modified).
-- [ ] Commit: `feat(frontend): add environment.prod.ts and angular.json fileReplacements for production build`
+- [x] Files changed: `frontend/src/environments/environment.prod.ts` (new), `frontend/angular.json` (modified).
+- [x] Commit: `feat(frontend): add environment.prod.ts and angular.json fileReplacements for production build`
 - **Spec ref**: CICD-9
 
 ---
