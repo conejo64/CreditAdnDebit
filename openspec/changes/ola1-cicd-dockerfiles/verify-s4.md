@@ -4,7 +4,21 @@
 ## Branch: feat/ola1-s4-compose-services
 ## Reviewed commits: c968962..32e919a (S4); whole-change base main @ f42e68e
 ## Date: 2026-06-15
-## Verdict: PASS WITH WARNINGS
+## Verdict: PASS WITH WARNINGS (W-1 resolved post-verify in 2a19cae — see note below)
+
+---
+
+## Post-Verify Resolution (added after the verdict above)
+
+**W-1 (`.env.example` duplicate `ConnectionStrings__Postgres`) is RESOLVED** by commit `2a19cae`
+(`fix(compose): override CardVault Postgres DB inline to resolve shared .env collision (W-1)`).
+The duplicate key was removed so `ConnectionStrings__Postgres` appears exactly once in
+`backend/deploy/.env.example` (set to the IsoSwitch database), and the `cardvault` compose
+service now carries an inline `environment:` override pointing at `Database=cardvault`
+(matching the existing `Kafka__BootstrapServers` override pattern). `docker compose config`
+exit 0 confirms each service resolves its correct database:
+CardVault → `Database=cardvault`, IsoSwitch → `Database=isoswitch`,
+IsoAudit → reads the IsoSwitch DB (per ADR-7). Effective whole-change status: **PASS clean**.
 
 ---
 
