@@ -167,26 +167,26 @@ EXPOSE <port>
 ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
 ```
 
-- [ ] **IsoAudit — REWRITE** `backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile`:
+- [x] **IsoAudit — REWRITE** `backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile`:
   - Port: `5301`; entry DLL: `IsoAudit.Api.dll`
   - Verify: `grep -r "cardswitch_solution" backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile` returns empty (stale path gone)
   - Copy `shared/BuildingBlocks/BuildingBlocks.csproj` before `dotnet restore` (resolves cross-service dependency)
   - **Spec ref**: CICD-5
 
-- [ ] **CardVault — CREATE** `backend/services/CardVault/src/CardVault.Api/Dockerfile`:
+- [x] **CardVault — CREATE** `backend/services/CardVault/src/CardVault.Api/Dockerfile`:
   - Port: `5101`; entry DLL: `CardVault.Api.dll`
   - Include all CardVault `.csproj` COPY steps before restore (Application, Domain, Infrastructure.*)
   - **Spec ref**: CICD-6
 
-- [ ] **IsoSwitch — CREATE** `backend/services/IsoSwitch/src/IsoSwitch.Api/Dockerfile`:
+- [x] **IsoSwitch — CREATE** `backend/services/IsoSwitch/src/IsoSwitch.Api/Dockerfile`:
   - Port: `5201`; entry DLL: `IsoSwitch.Api.dll`
   - Include all IsoSwitch `.csproj` COPY steps before restore
   - **Spec ref**: CICD-7
 
 ### Task 2.2 — Add gated `docker-build` job to `ci.yml`
 
-- [ ] Add a third job `docker-build` to `.github/workflows/ci.yml` with `needs: build-test`.
-- [ ] Three steps, one per service:
+- [x] Add a third job `docker-build` to `.github/workflows/ci.yml` with `needs: build-test`.
+- [x] Three steps, one per service:
   ```yaml
   - name: Build CardVault image
     run: docker build -f backend/services/CardVault/src/CardVault.Api/Dockerfile backend/
@@ -195,13 +195,13 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
   - name: Build IsoAudit image
     run: docker build -f backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile backend/
   ```
-- [ ] Confirm: no `docker push` step, no `--tag` with a registry prefix.
+- [x] Confirm: no `docker push` step, no `--tag` with a registry prefix.
 - **Spec ref**: CICD-4
 
 ### Task 2.3 — Create `backend/.dockerignore`
 
-- [ ] Create `backend/.dockerignore` (at the build context root — NOT inside a service folder).
-- [ ] Include at minimum:
+- [x] Create `backend/.dockerignore` (at the build context root — NOT inside a service folder).
+- [x] Include at minimum:
   ```
   **/bin/
   **/obj/
@@ -212,26 +212,26 @@ ENTRYPOINT ["dotnet","<Svc>.Api.dll"]
   **/TestResults/
   **/*.md
   ```
-- [ ] Confirm the file is at `backend/.dockerignore`, not `backend/services/.../.dockerignore`.
+- [x] Confirm the file is at `backend/.dockerignore`, not `backend/services/.../.dockerignore`.
 - **Spec ref**: CICD-8 (ADR-3: `.dockerignore` is resolved relative to the build context)
 
 ### Task 2.4 — Verify locally: all three images build from `backend/` context
 
-- [ ] From repo root, run:
+- [x] From repo root, run:
   ```
   docker build -f backend/services/CardVault/src/CardVault.Api/Dockerfile backend/
   docker build -f backend/services/IsoSwitch/src/IsoSwitch.Api/Dockerfile backend/
   docker build -f backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile backend/
   ```
-- [ ] Each build must exit with code 0.
-- [ ] Confirm no `cardswitch_solution/` path references remain in any Dockerfile.
-- [ ] Run `dotnet test backend/CardSwitchPlatform.sln` — 650+ green (CICD-INV-4).
+- [x] Each build must exit with code 0.
+- [x] Confirm no `cardswitch_solution/` path references remain in any Dockerfile.
+- [x] Run `dotnet test backend/CardSwitchPlatform.sln` — 650+ green (CICD-INV-4). ✓ 650 passed (18 IsoAudit + 53 IsoSwitch + 579 CardVault).
 - **Spec ref**: CICD-4, CICD-5, CICD-6, CICD-7
 
 ### Task 2.5 — Commit and slice integrity
 
-- [ ] Files changed: `backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile` (rewrite), `backend/services/CardVault/src/CardVault.Api/Dockerfile` (new), `backend/services/IsoSwitch/src/IsoSwitch.Api/Dockerfile` (new), `backend/.dockerignore` (new), `.github/workflows/ci.yml` (add docker-build job).
-- [ ] Commit: `feat(docker): add multi-stage Dockerfiles, .dockerignore, and docker-build CI job`
+- [x] Files changed: `backend/services/IsoAudit/src/IsoAudit.Api/Dockerfile` (rewrite), `backend/services/CardVault/src/CardVault.Api/Dockerfile` (new), `backend/services/IsoSwitch/src/IsoSwitch.Api/Dockerfile` (new), `backend/.dockerignore` (new), `.github/workflows/ci.yml` (add docker-build job).
+- [x] Commit: `feat(docker): add multi-stage Dockerfiles, .dockerignore, and docker-build CI job`
 - **Spec ref**: CICD-4 through CICD-8
 
 ---
