@@ -61,7 +61,7 @@ Chain strategy: pending
 - `CardVault.Infrastructure.Persistence/Billing/StatementEntity.cs`: same pattern
 - `CardVault.Infrastructure.Persistence/Issuer/CardAccountEntity.cs`: remove both enum definitions, add `using CardVault.Domain;`
 - `CardVault.Infrastructure.Persistence/Issuer/CardEntity.cs`: same pattern
-- `CardVault.Api/Services/BillingService.cs`, `MinimumPaymentService.cs`, `HoldService.cs`: add `using CardVault.Domain.Calculators;` where the extracted static methods are now called
+- `CardVault.Api/Services/BillingService.cs`, `MinimumPaymentService.cs`, `HoldService.cs`: add `using CardVault.Domain;` where the extracted static calculators are now called (flat namespace per design ADR-6/ADR-7; no `.Calculators` sub-namespace)
 - All test files referencing these enum types: global find/replace old namespace (`CardVault.Infrastructure.Persistence.Billing` / `CardVault.Infrastructure.Persistence.Issuer`) with `CardVault.Domain`
 
 **Preserved constructs**: None impacted in this slice; `public partial class Program {}` is not touched.
