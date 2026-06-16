@@ -1,5 +1,6 @@
 using CardVault.Api.Features.Settlement.Commands;
 using CardVault.Api.Services;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Accounting;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Issuer;

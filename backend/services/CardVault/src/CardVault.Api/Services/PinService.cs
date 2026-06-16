@@ -1,3 +1,4 @@
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Issuer;
 using Microsoft.EntityFrameworkCore;

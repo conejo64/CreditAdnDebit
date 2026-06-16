@@ -4,6 +4,7 @@ using System.Text;
 using System.Diagnostics;
 using CardVault.Api.Contracts;
 using CardVault.Api.Security;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.OpenBanking;

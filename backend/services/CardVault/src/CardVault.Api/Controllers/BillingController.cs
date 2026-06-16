@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Api.Features.Billing.Commands;
 using CardVault.Api.Features.Billing.Queries;

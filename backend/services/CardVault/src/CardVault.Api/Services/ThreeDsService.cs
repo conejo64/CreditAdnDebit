@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CardVault.Api.Contracts;
 using CardVault.Api.Pci;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Ecommerce;
 using CardVault.Infrastructure.Persistence.Issuer;

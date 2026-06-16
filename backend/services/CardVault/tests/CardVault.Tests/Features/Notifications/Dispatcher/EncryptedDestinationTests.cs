@@ -3,6 +3,7 @@ using CardVault.Api.Services;
 using CardVault.Api.Services.Notifications;
 using CardVault.Api.Services.Notifications.Templates;
 using CardVault.Api.Vault;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Infrastructure.Persistence.Notifications;
@@ -210,7 +211,7 @@ public sealed class EncryptedDestinationTests : IDisposable
             CustomerId = customer.Id,
             ProductCode = "GOLD",
             AccountNumber = $"ACCT{Guid.NewGuid():N}"[..12],
-            AccountType = CardVault.Infrastructure.Persistence.Issuer.AccountType.Credit
+            AccountType = AccountType.Credit
         };
         _db.Accounts.Add(account);
         _db.SaveChanges();
@@ -257,7 +258,7 @@ public sealed class EncryptedDestinationTests : IDisposable
             CustomerId = customer.Id,
             ProductCode = "GOLD",
             AccountNumber = $"ACCT{Guid.NewGuid():N}"[..12],
-            AccountType = CardVault.Infrastructure.Persistence.Issuer.AccountType.Credit
+            AccountType = AccountType.Credit
         };
         _db.Accounts.Add(account);
         _db.SaveChanges();

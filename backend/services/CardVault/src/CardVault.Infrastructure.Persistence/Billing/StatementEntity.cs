@@ -1,12 +1,7 @@
+using CardVault.Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace CardVault.Infrastructure.Persistence.Billing;
-
-public enum StatementStatus
-{
-    Open = 1,
-    Closed = 2
-}
 
 public sealed class StatementEntity
 {

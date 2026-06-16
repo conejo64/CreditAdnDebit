@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Http;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Api.Services;
 

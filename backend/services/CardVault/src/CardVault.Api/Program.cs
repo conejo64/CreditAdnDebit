@@ -2,6 +2,7 @@ using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
 using CardVault.Api.Contracts;
 using CardVault.Api.Security;
+using CardVault.Domain;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Outbox;

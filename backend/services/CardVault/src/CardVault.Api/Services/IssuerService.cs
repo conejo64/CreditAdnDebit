@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Infrastructure.Persistence.Vault;

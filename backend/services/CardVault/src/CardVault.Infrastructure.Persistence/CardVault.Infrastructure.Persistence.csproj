@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CardVault.Application\CardVault.Application.csproj" />
+    <ProjectReference Include="..\CardVault.Domain\CardVault.Domain.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CardVault.Api.Contracts;
 using CardVault.Api.Services;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Switch;

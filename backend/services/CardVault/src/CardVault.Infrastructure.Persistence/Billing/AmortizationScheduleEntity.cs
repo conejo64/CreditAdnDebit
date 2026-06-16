@@ -1,14 +1,7 @@
+using CardVault.Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace CardVault.Infrastructure.Persistence.Billing;
-
-public enum InstallmentStatus
-{
-    Pending = 1,
-    Invoiced = 2, // Puesto en el estado de cuenta
-    Paid = 3,
-    Skipped = 4
-}
 
 public sealed class AmortizationScheduleEntity
 {

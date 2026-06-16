@@ -1,3 +1,4 @@
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Switch;
 using CardVault.Infrastructure.Persistence.Billing;

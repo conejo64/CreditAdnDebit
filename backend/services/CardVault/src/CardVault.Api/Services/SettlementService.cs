@@ -1,4 +1,5 @@
 using CardVault.Api.Contracts;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Settlement;

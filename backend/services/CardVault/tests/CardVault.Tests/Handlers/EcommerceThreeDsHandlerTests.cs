@@ -5,6 +5,7 @@ using CardVault.Api.Features.Ecommerce3ds.Queries;
 using CardVault.Api.Pci;
 using CardVault.Api.Services;
 using CardVault.Api.Vault;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Ecommerce;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;

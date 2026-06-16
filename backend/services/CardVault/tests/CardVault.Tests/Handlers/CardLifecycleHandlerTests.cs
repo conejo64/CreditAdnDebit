@@ -1,5 +1,6 @@
 using CardVault.Api.Features.Issuer.Commands;
 using CardVault.Api.Services;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;

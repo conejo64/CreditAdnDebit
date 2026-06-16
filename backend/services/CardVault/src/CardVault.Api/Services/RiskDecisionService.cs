@@ -1,5 +1,5 @@
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
-using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Switch;
 using Microsoft.EntityFrameworkCore;
