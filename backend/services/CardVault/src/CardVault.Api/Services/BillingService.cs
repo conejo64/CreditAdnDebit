@@ -68,33 +68,12 @@ public sealed class BillingService
         var installmentDue = dueInstallments.Sum(x => x.TotalInstallmentAmount);
 
         // Average daily balance excluding interest ledger entries (for display)
-        static decimal ComputeAverageDailyBalance(decimal prevBalance, List<LedgerEntryEntity> entries, DateTime cycleStart, DateTime cycleEnd)
-        {
-            var start = cycleStart.Date;
-            var end = cycleEnd.Date;
-            var days = (end - start).Days + 1;
-            if (days <= 0) return 0m;
-
-            var byDate = entries
-                .GroupBy(e => e.PostedOn.Date)
-                .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
-
-            decimal running = prevBalance;
-            decimal sum = 0m;
-
-            for (var d = start; d <= end; d = d.AddDays(1))
-            {
-                if (byDate.TryGetValue(d, out var delta))
-                    running += delta;
-
-                sum += running;
-            }
-
-            return Math.Round(sum / days, 2, MidpointRounding.AwayFromZero);
-        }
-
+        // Delegate pure computation to Domain calculator — map entities to primitives at this boundary
         var nonInterest = cycleEntries.Where(x => x.Type != LedgerEntryType.Interest).ToList();
-        var adb = ComputeAverageDailyBalance(prevBalance, nonInterest, cycleStart, cycleEnd);
+        var adbEntries = nonInterest
+            .Select(e => (e.PostedOn.Date, e.Amount))
+            .ToList();
+        var adb = AverageDailyBalanceCalculator.Compute(prevBalance, adbEntries, cycleStart, cycleEnd);
         var interestDays = (cycleEnd.Date - cycleStart.Date).Days + 1;
 
         var newBalance = prevBalance + purchases + payments + fees + interest + installmentDue;
@@ -294,14 +273,21 @@ public sealed class BillingService
     ///
     /// ADR-6: single source of truth for the terminal bucket-to-totals formula used by
     /// both GenerateStatementAsync and SwitchTxnConsumer.UpdateOpenStatementAsync.
+    /// ADR-7: pure arithmetic delegated to Domain calculator; entity mutation stays here.
     /// </summary>
     internal void ApplyClosingTotals(StatementEntity st)
     {
-        st.InterestDue = st.InterestAccrued;
-        // v40 - FeesDue includes all fees in cycle (overlimit/annual/cash-advance/late fees)
-        st.FeesDue = st.Fees;
-        st.PrincipalDue = Math.Max(0, st.NewBalance - st.InterestDue - st.FeesDue);
-        st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
-        st.NewBalance = st.TotalPaymentDue;
+        // Delegate pure arithmetic to Domain calculator (primitives only — no EF types cross the boundary)
+        var result = ClosingTotalsCalculator.Compute(
+            interestAccrued: st.InterestAccrued,
+            feesTotal: st.Fees,
+            newBalance: st.NewBalance);
+
+        // Apply computed values back to entity (mutation stays in service layer)
+        st.InterestDue = result.InterestDue;
+        st.FeesDue = result.FeesDue;
+        st.PrincipalDue = result.PrincipalDue;
+        st.TotalPaymentDue = result.TotalPaymentDue;
+        st.NewBalance = result.NewBalance;
     }
 }

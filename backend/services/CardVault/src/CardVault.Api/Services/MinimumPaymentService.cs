@@ -22,7 +22,7 @@ public sealed class MinimumPaymentService
 
     public decimal CalculateMinimum(StatementEntity st, MinimumPaymentPolicyEntity p)
     {
-        // If older statements, initialize buckets approx
+        // If older statements, initialize buckets approx (entity mutation stays in the service layer)
         if (st.PrincipalDue == 0 && st.InterestDue == 0 && st.FeesDue == 0)
         {
             st.InterestDue = st.InterestAccrued;
@@ -30,22 +30,16 @@ public sealed class MinimumPaymentService
             st.PrincipalDue = Math.Max(0, st.StatementBalance - st.InterestDue - st.FeesDue);
         }
 
-        var totalDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
-        if (totalDue <= 0) return 0;
-
-        if (totalDue < p.FloorAmount) return totalDue;
-
-        var principalComponent = Math.Max(p.FloorAmount, Math.Round(p.PrincipalPercent * st.PrincipalDue, 2, MidpointRounding.AwayFromZero));
-        var interestComponent = p.IncludeInterest ? st.InterestDue : 0m;
-        var feesComponent = p.IncludeFees ? st.FeesDue : 0m;
-
-        var min = principalComponent + interestComponent + feesComponent;
-
-        if (p.CeilingAmount.HasValue && p.CeilingAmount.Value > 0)
-            min = Math.Min(min, p.CeilingAmount.Value);
-
-        // never exceed total due
-        return Math.Min(min, totalDue);
+        // Delegate pure arithmetic to Domain calculator (primitives only — no EF types cross the boundary)
+        return MinimumPaymentCalculator.Calculate(
+            principalDue: st.PrincipalDue,
+            interestDue: st.InterestDue,
+            feesDue: st.FeesDue,
+            floorAmount: p.FloorAmount,
+            principalPercent: p.PrincipalPercent,
+            includeInterest: p.IncludeInterest,
+            includeFees: p.IncludeFees,
+            ceilingAmount: p.CeilingAmount);
     }
 
     public async Task<StatementEntity> RecalculateAsync(Guid statementId, CancellationToken ct)
