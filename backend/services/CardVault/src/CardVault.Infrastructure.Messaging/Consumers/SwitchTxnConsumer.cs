@@ -8,7 +8,7 @@ using CardVault.Infrastructure.Persistence.Switch;
 using Confluent.Kafka;
 using Microsoft.EntityFrameworkCore;
 
-namespace CardVault.Api.Background;
+namespace CardVault.Infrastructure.Messaging.Consumers;
 
 public sealed class SwitchTxnConsumer : BackgroundService
 {

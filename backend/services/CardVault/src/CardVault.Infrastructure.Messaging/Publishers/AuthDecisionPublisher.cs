@@ -2,7 +2,7 @@ using BuildingBlocks.Outbox;
 using CardVault.Application.Ports;
 using System.Text.Json;
 
-namespace CardVault.Api.Services;
+namespace CardVault.Infrastructure.Messaging.Publishers;
 
 public sealed class AuthDecisionPublisher : IAuthDecisionPublisher
 {

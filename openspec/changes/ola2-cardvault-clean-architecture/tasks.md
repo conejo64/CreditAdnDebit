@@ -155,7 +155,7 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task CV-S4: CardVault Infrastructure.Messaging — Kafka Adapters
+## [x] Task CV-S4: CardVault Infrastructure.Messaging — Kafka Adapters
 
 **Spec requirements**: ARCH-6, ARCH-DEP-3, ARCH-PRES-4
 

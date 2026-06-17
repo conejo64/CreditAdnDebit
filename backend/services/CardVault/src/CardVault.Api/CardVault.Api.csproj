@@ -9,6 +9,7 @@
     <PackageReference Include="MediatR" Version="12.2.0" />
     <PackageReference Include="RazorLight" Version="2.3.1" />
     <ProjectReference Include="..\CardVault.Application\CardVault.Application.csproj" />
+    <ProjectReference Include="..\CardVault.Infrastructure.Messaging\CardVault.Infrastructure.Messaging.csproj" />
     <ProjectReference Include="..\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\CardVault.Infrastructure.Identity\CardVault.Infrastructure.Identity.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />

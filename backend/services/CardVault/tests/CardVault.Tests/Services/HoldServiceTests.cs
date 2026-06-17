@@ -1,6 +1,6 @@
 using CardVault.Application.Services;
 using CardVault.Application.Ports;
-using CardVault.Api.Services;
+using CardVault.Infrastructure.Messaging.Publishers;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;

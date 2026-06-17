@@ -1,4 +1,4 @@
-using CardVault.Api.Background;
+using CardVault.Infrastructure.Messaging.Consumers;
 using CardVault.Application.Services;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;

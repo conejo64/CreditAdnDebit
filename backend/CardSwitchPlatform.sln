@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardVault.Infrastructure.Id
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardVault.Infrastructure.Persistence", "services\CardVault\src\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj", "{3DF3291B-2E78-4E3C-8DA7-2F280D9E1B18}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardVault.Infrastructure.Messaging", "services\CardVault\src\CardVault.Infrastructure.Messaging\CardVault.Infrastructure.Messaging.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IsoSwitch.Api", "services\IsoSwitch\src\IsoSwitch.Api\IsoSwitch.Api.csproj", "{26A28F42-9656-40FF-B8F7-06E9FC8D0AEA}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IsoSwitch.Application", "services\IsoSwitch\src\IsoSwitch.Application\IsoSwitch.Application.csproj", "{07E81815-3618-4B3B-A56A-8B0D76FDCD90}"
@@ -119,6 +121,18 @@ Global
 		{3DF3291B-2E78-4E3C-8DA7-2F280D9E1B18}.Release|x64.Build.0 = Release|Any CPU
 		{3DF3291B-2E78-4E3C-8DA7-2F280D9E1B18}.Release|x86.ActiveCfg = Release|Any CPU
 		{3DF3291B-2E78-4E3C-8DA7-2F280D9E1B18}.Release|x86.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x64.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x86.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x64.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x64.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.Build.0 = Release|Any CPU
 		{26A28F42-9656-40FF-B8F7-06E9FC8D0AEA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{26A28F42-9656-40FF-B8F7-06E9FC8D0AEA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{26A28F42-9656-40FF-B8F7-06E9FC8D0AEA}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -257,6 +271,7 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{34FB391D-A2F4-CE23-6184-462100A61821} = {5854FF58-B8C5-05C6-5BF2-ACE42193F22B}
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} = {34FB391D-A2F4-CE23-6184-462100A61821}
 		{63FE5224-3359-37C4-D12B-6B7DE6E80541} = {34FB391D-A2F4-CE23-6184-462100A61821}
 		{9A495D25-D65B-4ACA-846E-E61A7B508B00} = {63FE5224-3359-37C4-D12B-6B7DE6E80541}
 		{592C3748-9777-3D80-F02C-0856DED8D1FC} = {5854FF58-B8C5-05C6-5BF2-ACE42193F22B}
