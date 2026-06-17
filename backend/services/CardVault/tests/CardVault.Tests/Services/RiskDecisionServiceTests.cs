@@ -1,4 +1,4 @@
-using CardVault.Api.Services;
+using CardVault.Application.Services;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;

@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Configuration options for the notification dispatcher.

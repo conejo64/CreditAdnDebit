@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
-using CardVault.Api.Contracts;
-using CardVault.Api.Features.Auth.Commands;
+using CardVault.Application.Contracts;
+using CardVault.Application.Features.Auth.Commands;
 using System.Security.Claims;
 
 namespace CardVault.Api.Controllers;

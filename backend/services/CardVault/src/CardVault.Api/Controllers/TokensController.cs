@@ -4,10 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
 using CardVault.Api.Vault;
-using CardVault.Api.Features.Tokens.Commands;
-using CardVault.Api.Features.Tokens.Queries;
+using CardVault.Application.Features.Tokens.Commands;
+using CardVault.Application.Features.Tokens.Queries;
 
 namespace CardVault.Api.Controllers;
 
@@ -28,7 +28,7 @@ public class TokensController : ControllerBase
     {
         var actor = User.Identity?.Name ?? User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
         var traceId = HttpContext.TraceIdentifier;
-        return await _mediator.Send(new TokenizeCommand(req, actor, traceId), ct);
+        return await _mediator.Send(new TokenizeCommand(req.Pan, req.ExpiryYyMm, actor, traceId), ct);
     }
 
     [HttpPost("detokenize")]

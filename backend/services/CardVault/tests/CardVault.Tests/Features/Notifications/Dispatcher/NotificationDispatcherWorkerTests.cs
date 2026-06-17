@@ -1,5 +1,5 @@
 using CardVault.Api.Background;
-using CardVault.Api.Services.Notifications;
+using CardVault.Application.Services.Notifications;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;

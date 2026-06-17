@@ -2,11 +2,12 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using CardVault.Application.Contracts;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Infrastructure.Persistence.Billing;
-using CardVault.Api.Features.Issuer.Commands;
-using CardVault.Api.Features.Issuer.Queries;
+using CardVault.Application.Features.Issuer.Commands;
+using CardVault.Application.Features.Issuer.Queries;
 
 namespace CardVault.Api.Controllers;
 
@@ -119,8 +120,6 @@ public class IssuerController : ControllerBase
         return await _mediator.Send(new SetPinCommand(id, req), ct);
     }
 }
-
-public record SetPinRequest(string Pin);
 
 [ApiController]
 [Route("api/credit/policies")]

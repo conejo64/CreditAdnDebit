@@ -336,20 +336,33 @@ following from their own service:
 
 ---
 
-### Requirement ARCH-DEP-2: Application Does Not Reference Api or Infrastructure
+### Requirement ARCH-DEP-2: Application Does Not Reference Api (Persistence reference is a documented, time-bounded exception)
 
-`CardVault.Application` and `IsoSwitch.Application` SHALL contain NO `<ProjectReference>` to:
-- The same service's `*.Api` project.
-- Any same-service `*.Infrastructure.*` project.
+`CardVault.Application` and `IsoSwitch.Application` SHALL contain NO `<ProjectReference>` to the same
+service's `*.Api` project. This is absolute — the Api is the composition root and nothing below it may
+depend on it.
 
 `Application` MAY reference `Domain` and shared cross-service libraries (e.g., `BuildingBlocks`).
 
-#### Scenario: Application csproj contains only Domain and shared references
+**Documented exception — `Application → Infrastructure.Persistence` (decided during CV-S2+S3 apply):**
+Because the EF entity types remain the shared model living in `Infrastructure.Persistence` (DDD aggregates
+are explicitly deferred to Ola 4+), the relocated handlers and services reference those entity types
+directly. A `DbContext` port (`ICardVaultDbContext`) was evaluated and **rejected**: it abstracts the
+context but NOT the entity types, so it does not remove the reference and would only add speculative
+layering the proposal forbade. Therefore `CardVault.Application` (and, if IS-S2 confirms the same
+constraint, `IsoSwitch.Application`) MAY reference its same-service `Infrastructure.Persistence` project
+SOLELY to consume the shared EF entity model. The dead, unused `Infrastructure.Persistence → Application`
+reference is removed to keep the direction one-way (`Application → Persistence`, no cycle). This compromise
+is deliberate and time-bounded: it is revisited when entities move to a true domain model in Ola 4+.
+
+#### Scenario: Application does not reference Api, and the reference graph is acyclic
 
 - GIVEN all CardVault slices have been applied
 - WHEN `CardVault.Application.csproj` is inspected
-- THEN its `<ProjectReference>` entries include `CardVault.Domain` and optionally `BuildingBlocks`
-- AND NO entry references `CardVault.Api` or any `CardVault.Infrastructure.*` project
+- THEN its `<ProjectReference>` entries include `CardVault.Domain`, `CardVault.Infrastructure.Persistence` (shared entity model), and optionally `BuildingBlocks`
+- AND NO entry references `CardVault.Api`
+- AND `CardVault.Infrastructure.Persistence` does NOT reference `CardVault.Application` (one-way only)
+- AND `dotnet build` succeeds with no circular-reference error
 
 ---
 

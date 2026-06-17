@@ -1,6 +1,7 @@
 using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
 using CardVault.Api.Pci;
+using CardVault.Application.Ports;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Outbox;
 using CardVault.Infrastructure.Persistence.Vault;
@@ -10,21 +11,23 @@ using System.Text.Json;
 
 namespace CardVault.Api.Vault;
 
-public sealed class TokenVaultService
+public sealed class TokenVaultService : IPanVault
 {
     private readonly VaultSettingsStore _settings;
+    private readonly VaultOptions _vaultOptions;
     private readonly PciOptions _pci;
     private readonly PciAuditPublisher _pciAudit;
     private readonly CardVaultDbContext _db;
     private readonly VaultCrypto _crypto;
     private readonly IEventBus _bus;
 
-    public TokenVaultService(CardVaultDbContext db, VaultCrypto crypto, IEventBus bus, VaultSettingsStore settings, PciOptions pci, PciAuditPublisher pciAudit)
+    public TokenVaultService(CardVaultDbContext db, VaultCrypto crypto, IEventBus bus, VaultSettingsStore settings, VaultOptions vaultOptions, PciOptions pci, PciAuditPublisher pciAudit)
     {
         _db = db;
         _crypto = crypto;
         _bus = bus;
         _settings = settings;
+        _vaultOptions = vaultOptions;
         _pci = pci;
         _pciAudit = pciAudit;
     }
@@ -202,6 +205,44 @@ public sealed class TokenVaultService
         await _settings.UpdateReencryptStateAsync(updated > 0 ? "completed" : "noop", updated, ct);
 
         return new ReEncryptBatchResponse(active, updated, DateTimeOffset.UtcNow);
+    }
+
+// IPanVault port implementation — maps internal records to Application port types
+    async Task<TokenizeResult> IPanVault.TokenizeAsync(string pan, string? expiryYyMm, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await TokenizeAsync(new TokenizeRequest(pan, expiryYyMm), actor, traceId, ct);
+        return new TokenizeResult(r.Token, r.MaskedPan, r.Bin, r.KeyId, r.CreatedOn);
+    }
+
+    async Task<DetokenizeResult> IPanVault.DetokenizeAsync(string token, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await DetokenizeAsync(token, actor, traceId, ct);
+        return new DetokenizeResult(r.Token, r.Pan, r.ExpiryYyMm, r.KeyId);
+    }
+
+    async Task<TokenMetadataResult> IPanVault.GetMetadataAsync(string token, CancellationToken ct)
+    {
+        var r = await GetMetadataAsync(token, ct);
+        return new TokenMetadataResult(r.Token, r.MaskedPan, r.Bin, r.KeyId, r.CreatedOn, r.LastAccessedOn);
+    }
+
+    async Task<RotateKeyResult> IPanVault.RotateActiveKeyAsync(string newActiveKeyId, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await RotateActiveKeyAsync(newActiveKeyId, actor, traceId, ct);
+        return new RotateKeyResult(r.ActiveKeyId, r.RotatedOn, r.Actor);
+    }
+
+    async Task<ReEncryptBatchResult> IPanVault.ReEncryptBatchAsync(int take, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await ReEncryptBatchAsync(take, actor, traceId, ct);
+        return new ReEncryptBatchResult(r.ActiveKeyId, r.UpdatedCount, r.RotatedOn);
+    }
+
+    async Task<(string ActiveKeyId, IReadOnlyList<string> AvailableKeyIds)> IPanVault.GetActiveKeyInfoAsync(CancellationToken ct)
+    {
+        var active = await _settings.GetActiveKeyIdAsync(ct);
+        var available = _vaultOptions.Keys.Keys.OrderBy(k => k).ToList();
+        return (active, available);
     }
 
 private static string Mask(string pan)

@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using CardVault.Api.Services.Notifications;
+using CardVault.Application.Services.Notifications;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using CardVault.Tests.Infrastructure;

@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using CardVault.Api.Pci;
-using CardVault.Api.Services;
-using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Application.Services;
+using CardVault.Application.Services.Notifications.Templates;
 using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Claims a batch of pending/failed deliveries, drives the 5-state FSM, calls providers,

@@ -2,9 +2,10 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using CardVault.Application.Contracts;
 using CardVault.Infrastructure.Persistence;
-using CardVault.Api.Features.Disputes.Commands;
-using CardVault.Api.Features.Disputes.Queries;
+using CardVault.Application.Features.Disputes.Commands;
+using CardVault.Application.Features.Disputes.Queries;
 
 namespace CardVault.Api.Controllers;
 

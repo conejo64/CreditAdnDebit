@@ -1,7 +1,7 @@
 using CardVault.Infrastructure.Persistence.Notifications;
 using Microsoft.AspNetCore.Http;
 
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Outcome returned by a provider after a send attempt.

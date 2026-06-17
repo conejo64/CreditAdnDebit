@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
-using CardVault.Api.Services.Notifications;
-using CardVault.Api.Services.Notifications.Webhooks;
+using CardVault.Application.Services.Notifications;
+using CardVault.Application.Services.Notifications.Webhooks;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;

@@ -1,9 +1,10 @@
 using BuildingBlocks.Outbox;
+using CardVault.Application.Ports;
 using System.Text.Json;
 
 namespace CardVault.Api.Services;
 
-public sealed class AuthDecisionPublisher
+public sealed class AuthDecisionPublisher : IAuthDecisionPublisher
 {
     private readonly IConfiguration _cfg;
     private readonly IEventBus _bus;

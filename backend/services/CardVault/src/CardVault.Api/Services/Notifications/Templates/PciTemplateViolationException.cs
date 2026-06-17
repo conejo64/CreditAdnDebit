@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications.Templates;
+namespace CardVault.Application.Services.Notifications.Templates;
 
 /// <summary>
 /// Thrown by <see cref="PciTemplateGuard.Validate"/> when a <see cref="TemplateModel"/>

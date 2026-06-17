@@ -22,7 +22,7 @@ Chain strategy: pending
 | Unit | Goal | Likely PR | Notes |
 |------|------|-----------|-------|
 | CV-S1 | CardVault Domain: enums + pure calculators | PR 1 | Base: main; self-contained enum extraction + Class1.cs removal |
-| CV-S2+S3 | CardVault Application: handlers + services + ports + MediatR scan | PR 2 | Largest slice; depends on PR 1 (ICardVaultDbContext requires Domain) |
+| CV-S2+S3 | CardVault Application: handlers + services + MediatR scan | PR 2 | Largest slice; depends on PR 1 (enums in Domain). No DbContext port — Application references Persistence directly (ARCH-DEP-2 exception) |
 | CV-S4 | CardVault Infrastructure.Messaging: Kafka adapters | PR 3 | New project creation; depends on PR 2 (Application types) |
 | CV-S5 | CardVault Infrastructure.Notifications | PR 4 | New project; cshtml + test ItemGroup path update |
 | CV-S6 | CardVault Api thin-root verification | PR 5 | Confirm-only; no moves expected |
@@ -118,16 +118,15 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 - `AuditService.cs`, `BillingService.cs`, `BillingMaintenanceService.cs`, `DailyInterestAccrualService.cs`, `DisputeService.cs`, `DisputesService.cs`, `FeeService.cs`, `HoldService.cs`, `HoldMaintenanceService.cs`, `MinimumPaymentService.cs`, `PaymentAllocatorService.cs`, `StatementPdfService.cs`, `AvailableCreditService.cs`, `InstallmentService.cs`, `PinService.cs`, `ThreeDsService.cs`, `OpenBankingService.cs`, `AccountingService.cs`, `SettlementService.cs`, `LoyaltyService.cs`, `WalletService.cs`, `CreditPolicyService.cs`, `CreditLimitManagementService.cs`, `RiskDecisionService.cs`, `CustomerService.cs`, `LedgerService.cs`, `IssuerService.cs`, `PasswordResetService.cs`, `AnalyticsService.cs`
   All: `CardVault.Api/Services/*.cs` → `CardVault.Application/Services/*.cs`
 
-**Files to create (ports)**:
-- `CardVault.Application/Ports/ICardVaultDbContext.cs` — narrow interface exposing all `DbSet<>` properties + `SaveChangesAsync` overloads referenced by moved handlers/services (derive mechanically by grepping all `_db.` usages in moved code)
+**Ports**: NONE. `ICardVaultDbContext` was rejected (see spec ARCH-DEP-2 / design ADR-6). The EF entities live in `Infrastructure.Persistence`; moved code consumes them directly, so a `DbContext` port does not remove the `Application → Persistence` dependency. Services move wholesale and inject `CardVaultDbContext` concretely.
 
 **Files to create (marker)**:
 - `CardVault.Application/ApplicationMarker.cs` — `public sealed class ApplicationMarker {}`
 - Delete `CardVault.Application/Class1.cs`
 
 **Reference changes**:
-- `CardVault.Application.csproj`: add `<ProjectReference Include="..\CardVault.Domain\CardVault.Domain.csproj" />`; add `<FrameworkReference Include="Microsoft.AspNetCore.App" />` (handlers return `IResult`/`Results.*`); add `<PackageReference Include="MediatR" Version="12.2.0" />`; add `<PackageReference Include="QuestPDF" Version="2024.3.5" />` if `StatementPdfService` needs it; verify BuildingBlocks reference already present
-- `CardVault.Infrastructure.Persistence.csproj`: already references Application — this is the correct direction for the `ICardVaultDbContext` implementation; `CardVaultDbContext` adds `: ICardVaultDbContext`
+- `CardVault.Application.csproj`: add `<ProjectReference Include="..\CardVault.Domain\CardVault.Domain.csproj" />`; add `<ProjectReference Include="..\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />` (shared EF entity model — the documented ARCH-DEP-2 exception); add `<FrameworkReference Include="Microsoft.AspNetCore.App" />` (handlers return `IResult`/`Results.*`); add `<PackageReference Include="MediatR" Version="12.2.0" />`; add `<PackageReference Include="QuestPDF" Version="2024.3.5" />` if `StatementPdfService` needs it; verify BuildingBlocks reference already present
+- `CardVault.Infrastructure.Persistence.csproj`: REMOVE the dead `<ProjectReference Include="..\CardVault.Application\...>` (unused in source; removing it makes the direction one-way `Application → Persistence` with no cycle). Keep its `Domain` + `BuildingBlocks` refs.
 - `CardVault.Api.csproj`: no new references needed (already references Application and Persistence)
 - `CardVault.Tests.csproj`: already references Application and Persistence — no change
 
@@ -142,14 +141,14 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 - Line 60: `cfg.RegisterServicesFromAssembly(typeof(Program).Assembly)` → `cfg.RegisterServicesFromAssemblyContaining<ApplicationMarker>()`
 - Add `using CardVault.Application;` for `ApplicationMarker`
 - All `AddScoped<ServiceName>()` registrations for moved services: change to `using CardVault.Application.Services;` (the DI type names are unchanged)
-- `CardVaultDbContext` in Persistence: add `ICardVaultDbContext` to class declaration; `Program.cs` registers `ICardVaultDbContext` → `CardVaultDbContext` via the existing `AddDbContext` or explicit `services.AddScoped<ICardVaultDbContext>(sp => sp.GetRequiredService<CardVaultDbContext>())`
+- `CardVaultDbContext` registration in `Program.cs` is unchanged — services inject the concrete `CardVaultDbContext` (no port, no extra registration).
 
 **Preserved constructs**: `public partial class Program {}` (line ~575 of `CardVault.Api/Program.cs`) — do not remove
 
 **Test verification**: `dotnet test backend/CardSwitchPlatform.sln` → 650 green, 0 failed, exit 0
 
 **Assumptions/open decisions**:
-- `ICardVaultDbContext` surface: derive mechanically by compiling Application with only `ICardVaultDbContext` declared; every `CS0246` / `CS1061` identifies a missing member — add it to the interface. Keep it the narrowest set that makes the moved code compile.
+- No `ICardVaultDbContext` port (rejected — ARCH-DEP-2 / ADR-6). Application references `Infrastructure.Persistence` directly for the shared EF entity model; services inject `CardVaultDbContext` concretely.
 - `NotificationService.cs` in Api/Services — confirm whether it stays in Api (if it is a thin dispatcher that belongs with notification infrastructure) or moves to Application; decision: move it with Application services; its notification provider dependencies become constructor injected from Infrastructure via DI (no Application→Infrastructure reference added)
 - `StatementPdfService.cs` references `QuestPDF` — confirm the package is available in Application or keep it in Api; recommendation: move it and add the package to Application.csproj
 - `HoldService` and any service using `IServiceProvider` service-locator: move unchanged; the `IServiceProvider` usage is not refactored (ARCH-INV-6)
@@ -390,7 +389,7 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ## Overall Assumptions and Constraints
 
-- **ICardVaultDbContext surface**: Derive mechanically — compile Application with a stub interface, add each missing member the compiler reports. Keep it the narrowest set that makes moved code compile. Do NOT speculatively add DbSets not referenced by moved code.
+- **No DbContext port**: `ICardVaultDbContext` was rejected (ARCH-DEP-2 / ADR-6) — it abstracts the context but not the entity types that force the `Application → Persistence` reference. Application references `Infrastructure.Persistence` directly; the dead reverse reference is removed so the direction is one-way.
 - **ApplicationMarker placement**: One dedicated `public sealed class ApplicationMarker {}` per Application assembly (CardVault and IsoSwitch); not reusing an existing public type.
 - **Test instantiation pattern preservation**: Tests that `new` concrete services (e.g., `new BillingService(db, ...)`) continue to compile because those types still exist — only their namespace changes. No test is rewritten to use interfaces or mocks (ARCH-INV-4).
 - **No logic changes**: Method bodies in moved types are byte-for-byte identical to the pre-change baseline. Only `namespace` declarations and `using` directives change (ARCH-PRES-4).

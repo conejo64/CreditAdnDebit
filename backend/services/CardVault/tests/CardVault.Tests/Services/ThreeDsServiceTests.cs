@@ -1,7 +1,7 @@
 using BuildingBlocks.Outbox;
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
 using CardVault.Api.Pci;
-using CardVault.Api.Services;
+using CardVault.Application.Services;
 using CardVault.Api.Vault;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;

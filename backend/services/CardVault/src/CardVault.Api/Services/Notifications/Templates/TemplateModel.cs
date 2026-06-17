@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications.Templates;
+namespace CardVault.Application.Services.Notifications.Templates;
 
 /// <summary>
 /// PCI-safe model passed to Razor notification templates.

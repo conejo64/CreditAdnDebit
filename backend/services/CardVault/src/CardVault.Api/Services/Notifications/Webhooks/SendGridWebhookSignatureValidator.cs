@@ -3,7 +3,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
-namespace CardVault.Api.Services.Notifications.Webhooks;
+namespace CardVault.Application.Services.Notifications.Webhooks;
 
 /// <summary>
 /// Validates inbound SendGrid Event Webhook requests using ECDSA (P-256 / SHA-256).

@@ -1,3 +1,5 @@
+using CardVault.Application.Services;
+using CardVault.Application.Ports;
 using CardVault.Api.Services;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
@@ -49,6 +51,7 @@ public sealed class HoldServiceTests : IDisposable
         services.AddSingleton<PinService>();
         services.AddSingleton<RiskDecisionService>();
         services.AddSingleton<AuthDecisionPublisher>();
+        services.AddSingleton<IAuthDecisionPublisher>(sp => sp.GetRequiredService<AuthDecisionPublisher>());
         services.AddSingleton<CreditLimitManagementService>();
         services.AddSingleton(provider => new HoldService(
             provider.GetRequiredService<CardVaultDbContext>(),

@@ -1,4 +1,4 @@
-using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Application.Services.Notifications.Templates;
 using FluentAssertions;
 
 namespace CardVault.Tests.Features.Notifications.Templates;

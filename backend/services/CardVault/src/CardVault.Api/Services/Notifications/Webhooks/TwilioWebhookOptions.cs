@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications.Webhooks;
+namespace CardVault.Application.Services.Notifications.Webhooks;
 
 /// <summary>
 /// Secret configuration for the Twilio webhook signature validator.

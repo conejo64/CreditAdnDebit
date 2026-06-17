@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications.Templates;
+namespace CardVault.Application.Services.Notifications.Templates;
 
 /// <summary>
 /// Renders a notification template into a subject + body pair.

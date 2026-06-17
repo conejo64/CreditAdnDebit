@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using CardVault.Infrastructure.Persistence.Notifications;
 
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Slice-1 stub implementation of <see cref="INotificationProviderRegistry"/>.

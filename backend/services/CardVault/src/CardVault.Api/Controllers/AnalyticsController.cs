@@ -1,4 +1,4 @@
-using CardVault.Api.Features.Analytics.Queries;
+using CardVault.Application.Features.Analytics.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

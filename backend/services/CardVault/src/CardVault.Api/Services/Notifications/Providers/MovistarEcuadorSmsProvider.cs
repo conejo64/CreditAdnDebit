@@ -6,7 +6,7 @@ using CardVault.Infrastructure.Persistence.Notifications;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace CardVault.Api.Services.Notifications.Providers;
+namespace CardVault.Application.Services.Notifications.Providers;
 
 /// <summary>
 /// <see cref="INotificationProvider"/> implementation that sends SMS via Movistar Ecuador.

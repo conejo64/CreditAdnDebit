@@ -34,7 +34,7 @@ public sealed class TokenVaultServiceReencryptAuditTests
         var pciOpt   = new PciOptions();
         var pciAudit = new PciAuditPublisher(bus);
 
-        var svc = new TokenVaultService(db, crypto, bus, settings, pciOpt, pciAudit);
+        var svc = new TokenVaultService(db, crypto, bus, settings, vaultOpt, pciOpt, pciAudit);
         return (db, svc);
     }
 

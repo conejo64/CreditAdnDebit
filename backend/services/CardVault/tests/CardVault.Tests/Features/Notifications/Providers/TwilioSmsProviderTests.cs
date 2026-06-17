@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using CardVault.Api.Services.Notifications;
-using CardVault.Api.Services.Notifications.Providers;
+using CardVault.Application.Services.Notifications;
+using CardVault.Application.Services.Notifications.Providers;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -267,7 +267,7 @@ public sealed class TwilioSmsProviderTests
 
 // ── Mock HTTP infrastructure ──────────────────────────────────────────────────
 
-file sealed class StaticTwilioAuthTokenProvider(string token) : CardVault.Api.Services.Notifications.Providers.ITwilioAuthTokenProvider
+file sealed class StaticTwilioAuthTokenProvider(string token) : CardVault.Application.Services.Notifications.Providers.ITwilioAuthTokenProvider
 {
     public string GetAuthToken() => token;
 }

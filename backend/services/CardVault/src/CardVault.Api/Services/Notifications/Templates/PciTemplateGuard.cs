@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace CardVault.Api.Services.Notifications.Templates;
+namespace CardVault.Application.Services.Notifications.Templates;
 
 /// <summary>
 /// Pre-render PCI guard. Validates a <see cref="TemplateModel"/> and throws

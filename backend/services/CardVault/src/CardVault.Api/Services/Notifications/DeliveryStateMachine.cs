@@ -1,6 +1,6 @@
 using CardVault.Infrastructure.Persistence.Notifications;
 
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Stateless 5-state delivery FSM.

@@ -1,7 +1,7 @@
 using CardVault.Api.Pci;
-using CardVault.Api.Services;
-using CardVault.Api.Services.Notifications;
-using CardVault.Api.Services.Notifications.Templates;
+using CardVault.Application.Services;
+using CardVault.Application.Services.Notifications;
+using CardVault.Application.Services.Notifications.Templates;
 using CardVault.Api.Vault;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;

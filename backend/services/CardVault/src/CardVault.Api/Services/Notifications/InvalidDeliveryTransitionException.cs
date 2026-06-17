@@ -1,6 +1,6 @@
 using CardVault.Infrastructure.Persistence.Notifications;
 
-namespace CardVault.Api.Services.Notifications;
+namespace CardVault.Application.Services.Notifications;
 
 /// <summary>
 /// Thrown when a state-machine transition is illegal for the current delivery status.

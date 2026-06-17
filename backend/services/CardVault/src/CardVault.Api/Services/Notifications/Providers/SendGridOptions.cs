@@ -1,4 +1,4 @@
-namespace CardVault.Api.Services.Notifications.Providers;
+namespace CardVault.Application.Services.Notifications.Providers;
 
 /// <summary>
 /// Non-secret configuration for the SendGrid email provider.

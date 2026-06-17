@@ -1,4 +1,4 @@
-using CardVault.Api.Features.Delinquency.Commands;
+using CardVault.Application.Features.Delinquency.Commands;
 using MediatR;
 
 namespace CardVault.Api.Background;

@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
-using CardVault.Api.Services.Notifications;
-using CardVault.Api.Services.Notifications.Providers;
+using CardVault.Application.Services.Notifications;
+using CardVault.Application.Services.Notifications.Providers;
 using CardVault.Infrastructure.Persistence.Notifications;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;

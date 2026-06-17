@@ -1,6 +1,6 @@
 using RazorLight;
 
-namespace CardVault.Api.Services.Notifications.Templates;
+namespace CardVault.Application.Services.Notifications.Templates;
 
 /// <summary>
 /// <see cref="INotificationTemplateRenderer"/> implementation using RazorLight.
