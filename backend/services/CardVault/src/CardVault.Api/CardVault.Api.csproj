@@ -7,9 +7,9 @@
   <ItemGroup>
     <PackageReference Include="Confluent.Kafka" Version="2.6.0" />
     <PackageReference Include="MediatR" Version="12.2.0" />
-    <PackageReference Include="RazorLight" Version="2.3.1" />
     <ProjectReference Include="..\CardVault.Application\CardVault.Application.csproj" />
     <ProjectReference Include="..\CardVault.Infrastructure.Messaging\CardVault.Infrastructure.Messaging.csproj" />
+    <ProjectReference Include="..\CardVault.Infrastructure.Notifications\CardVault.Infrastructure.Notifications.csproj" />
     <ProjectReference Include="..\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\CardVault.Infrastructure.Identity\CardVault.Infrastructure.Identity.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
@@ -22,17 +22,6 @@
       <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.10.0-beta.1" />
     <PackageReference Include="QuestPDF" Version="2024.3.5" />
 </ItemGroup>
-  <!-- Notification templates for RazorLight (FileSystemProject).
-       RazorCompile Remove prevents the ASP.NET Core Razor compiler from treating these
-       files as MVC/Razor Pages views (which would produce AspNetCoreGeneratedDocument.*
-       classes). CopyToOutputDirectory makes them available on disk at runtime and in the
-       test output directory, where RazorLight's FileSystemProject can find them. -->
-  <ItemGroup>
-    <RazorCompile Remove="Services\Notifications\Templates\*.cshtml" />
-    <Content Update="Services\Notifications\Templates\*.cshtml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />

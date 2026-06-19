@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="RazorLight" Version="2.3.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CardVault.Application\CardVault.Application.csproj" />
+    <ProjectReference Include="..\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />
+  </ItemGroup>
+  <!-- Notification templates for RazorLight (FileSystemProject).
+       RazorCompile Remove prevents the ASP.NET Core Razor compiler from treating these
+       files as MVC/Razor Pages views. CopyToOutputDirectory makes them available on disk
+       at runtime and in the test output directory. -->
+  <ItemGroup>
+    <RazorCompile Remove="Templates\*.cshtml" />
+    <Content Update="Templates\*.cshtml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

@@ -18,10 +18,10 @@ using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using CardVault.Application;
 using CardVault.Application.Services;
-using CardVault.Application.Services.Notifications;
-using CardVault.Application.Services.Notifications.Providers;
-using CardVault.Application.Services.Notifications.Templates;
-using CardVault.Application.Services.Notifications.Webhooks;
+using CardVault.Infrastructure.Notifications;
+using CardVault.Infrastructure.Notifications.Providers;
+using CardVault.Infrastructure.Notifications.Templates;
+using CardVault.Infrastructure.Notifications.Webhooks;
 using CardVault.Infrastructure.Messaging.Consumers;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Api.Pci;
@@ -294,8 +294,8 @@ builder.Services.AddHostedService<EfOutboxPublisher>();
 builder.Services.AddHostedService<SwitchTxnConsumer>();
 builder.Services.AddHostedService<CardVault.Api.Background.HoldExpiryWorker>();
 builder.Services.AddHostedService<CardVault.Api.Background.NotificationDispatcherWorker>();
-builder.Services.AddScoped<CardVault.Application.Services.Notifications.INotificationDispatcher,
-    CardVault.Application.Services.Notifications.NotificationDispatcher>();
+builder.Services.AddScoped<CardVault.Infrastructure.Notifications.INotificationDispatcher,
+    CardVault.Infrastructure.Notifications.NotificationDispatcher>();
 builder.Services.AddHostedService<CardVault.Api.Background.DelinquencyEvaluationWorker>();
 var app = builder.Build();
 

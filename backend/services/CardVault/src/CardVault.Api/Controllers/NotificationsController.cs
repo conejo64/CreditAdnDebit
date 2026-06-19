@@ -1,7 +1,7 @@
 using CardVault.Application.Features.Notifications.Queries;
 using CardVault.Application.Services;
 using CardVault.Api.Pci;
-using CardVault.Application.Services.Notifications;
+using CardVault.Infrastructure.Notifications;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;
 using MediatR;

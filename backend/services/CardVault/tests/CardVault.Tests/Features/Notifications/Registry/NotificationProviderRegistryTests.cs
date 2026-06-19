@@ -1,4 +1,4 @@
-using CardVault.Application.Services.Notifications;
+using CardVault.Infrastructure.Notifications;
 using CardVault.Infrastructure.Persistence.Notifications;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;

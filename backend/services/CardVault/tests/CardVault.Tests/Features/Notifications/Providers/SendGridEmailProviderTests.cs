@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using CardVault.Application.Services.Notifications;
-using CardVault.Application.Services.Notifications.Providers;
+using CardVault.Infrastructure.Notifications;
+using CardVault.Infrastructure.Notifications.Providers;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -262,7 +262,7 @@ public sealed class SendGridEmailProviderTests
 
 // ── Mock HTTP infrastructure ──────────────────────────────────────────────────
 
-file sealed class StaticApiKeyProvider(string apiKey) : CardVault.Application.Services.Notifications.Providers.IApiKeyProvider
+file sealed class StaticApiKeyProvider(string apiKey) : CardVault.Infrastructure.Notifications.Providers.IApiKeyProvider
 {
     public string GetApiKey() => apiKey;
 }

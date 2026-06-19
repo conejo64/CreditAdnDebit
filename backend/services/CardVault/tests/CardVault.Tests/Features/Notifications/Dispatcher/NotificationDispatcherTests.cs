@@ -1,8 +1,8 @@
 using BuildingBlocks.Outbox;
 using CardVault.Api.Pci;
 using CardVault.Application.Services;
-using CardVault.Application.Services.Notifications;
-using CardVault.Application.Services.Notifications.Templates;
+using CardVault.Infrastructure.Notifications;
+using CardVault.Infrastructure.Notifications.Templates;
 using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Notifications;

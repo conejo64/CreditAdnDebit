@@ -1,4 +1,4 @@
-using CardVault.Application.Services.Notifications;
+using CardVault.Infrastructure.Notifications;
 using Microsoft.AspNetCore.Http;
 
 namespace CardVault.Tests.Features.Notifications.Webhooks;
