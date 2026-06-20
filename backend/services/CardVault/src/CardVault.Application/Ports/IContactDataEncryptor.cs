@@ -2,8 +2,8 @@ namespace CardVault.Application.Ports;
 
 /// <summary>
 /// Port for encrypting and decrypting sensitive contact data (email, phone) for storage.
-/// Implemented by CardVault.Api.Vault.VaultCrypto (stays in Api).
-/// Returns (keyId, nonceB64, cipherB64, tagB64) tuple matching VaultCrypto.EncryptToParts contract.
+/// <see cref="EncryptToParts{T}"/> returns a (keyId, nonceB64, cipherB64, tagB64) tuple;
+/// <see cref="DecryptFromParts{T}"/> reverses it. Implementations live in the infrastructure layer.
 /// </summary>
 public interface IContactDataEncryptor
 {
