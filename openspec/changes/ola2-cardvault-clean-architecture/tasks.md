@@ -187,7 +187,7 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task CV-S5: CardVault Infrastructure.Notifications — Notification Adapters
+## [x] Task CV-S5: CardVault Infrastructure.Notifications — Notification Adapters
 
 **Spec requirements**: ARCH-7, ARCH-PRES-4
 
@@ -228,17 +228,21 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task CV-S6: CardVault Api — Thin Composition Root Verification
+## [x] Task CV-S6: CardVault Api — Thin Composition Root Verification
 
 **Spec requirements**: ARCH-8, ARCH-PRES-1, ARCH-PRES-4
 
 **Files to move**: None — this is a verification-only slice
 
 **Checklist**:
-- [ ] Confirm `CardVault.Api` source tree contains NO handler, business service, Kafka adapter, or notification provider
-- [ ] Confirm remaining files: `Program.cs`, `Controllers/**`, `Contracts/**`, `Background/HoldExpiryWorker.cs`, `Background/DelinquencyEvaluationWorker.cs`, `Pci/**`, `Vault/**`, `Security/**`, `Observability.cs`
-- [ ] Confirm `public partial class Program {}` declaration is present (currently ~line 575)
-- [ ] `dotnet build backend/CardSwitchPlatform.sln` — no errors, no circular references
+- [x] Confirm `CardVault.Api` source tree contains NO handler, business service, Kafka adapter, or notification provider — verified via rg, NONE FOUND
+- [x] Confirm remaining files: `Program.cs`, `Controllers/**`, `Contracts/**`, `Background/**` (HoldExpiryWorker, DelinquencyEvaluationWorker, NotificationDispatcherWorker), `Pci/**`, `Vault/**`, `Security/**`, `Observability.cs`
+- [x] Confirm `public partial class Program {}` declaration is present (Program.cs:585)
+- [x] `dotnet build backend/CardSwitchPlatform.sln` — 0 errors, no circular references (13 preexisting warnings)
+
+**Verification notes**:
+- `Background/NotificationDispatcherWorker.cs` also remains in Api — it is a `BackgroundService` host concern with no business logic (resolves `INotificationDispatcher` from DI and calls `DispatchBatchAsync`); the dispatcher implementation lives in `CardVault.Infrastructure.Notifications`. Same category as the other two workers; legitimately stays in Api.
+- Removed empty leftover `CardVault.Api/Services/` directory (ghost dir left after the CV-S2..S5 moves; untracked by git).
 
 **Test verification**: `dotnet test backend/CardSwitchPlatform.sln` → 650 green, 0 failed, exit 0
 
