@@ -5,7 +5,7 @@ namespace CardVault.Infrastructure.Notifications.Templates;
 /// <summary>
 /// <see cref="INotificationTemplateRenderer"/> implementation using RazorLight.
 /// Templates are plain files on disk, located at
-/// <c>Services/Notifications/Templates/{TemplateType}.{locale}.cshtml</c>
+/// <c>Templates/{TemplateType}.{locale}.cshtml</c>
 /// relative to the application base directory.
 /// <para>
 /// PCI contract: <see cref="PciTemplateGuard"/> runs BEFORE render; rendered body is NEVER logged.
@@ -38,7 +38,7 @@ public sealed class RazorNotificationTemplateRenderer : INotificationTemplateRen
     public static RazorNotificationTemplateRenderer Create(string? templatesPath = null)
     {
         var path = templatesPath
-            ?? Path.Combine(AppContext.BaseDirectory, "Services", "Notifications", "Templates");
+            ?? Path.Combine(AppContext.BaseDirectory, "Templates");
 
         var engine = new RazorLightEngineBuilder()
             .UseFileSystemProject(path)

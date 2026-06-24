@@ -15,12 +15,14 @@
     <ProjectReference Include="..\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />
   </ItemGroup>
   <!-- Notification templates for RazorLight (FileSystemProject).
-       RazorCompile Remove prevents the ASP.NET Core Razor compiler from treating these
-       files as MVC/Razor Pages views. CopyToOutputDirectory makes them available on disk
-       at runtime and in the test output directory. -->
+       This is Microsoft.NET.Sdk (not .Web), so .cshtml are NOT included implicitly:
+       Content Include adds them and CopyToOutputDirectory copies them to "Templates/"
+       under the output of this project AND every project that references it (Api, Tests),
+       which is where RazorNotificationTemplateRenderer.Create() looks at runtime.
+       RazorCompile Remove keeps the ASP.NET Core Razor compiler from treating them as views. -->
   <ItemGroup>
     <RazorCompile Remove="Templates\*.cshtml" />
-    <Content Update="Templates\*.cshtml">
+    <Content Include="Templates\*.cshtml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
