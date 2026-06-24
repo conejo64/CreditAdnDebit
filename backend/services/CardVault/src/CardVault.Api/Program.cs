@@ -1,6 +1,5 @@
 using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
-using CardVault.Api.Contracts;
 using CardVault.Application.Contracts;
 using CardVault.Api.Security;
 using CardVault.Domain;
