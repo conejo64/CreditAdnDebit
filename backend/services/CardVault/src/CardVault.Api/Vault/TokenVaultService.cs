@@ -36,6 +36,10 @@ public sealed class TokenVaultService : IPanVault
 
     public async Task<TokenizeResponse> TokenizeAsync(TokenizeRequest req, string actor, string? traceId, CancellationToken ct)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var activity = Observability.ActivitySource.StartActivity("vault.tokenize");
+        activity?.SetTag("traceId", traceId);
+
         var token = "tok_" + Base64Url(RandomNumberGenerator.GetBytes(18));
         var bin = req.Pan.Length >= 6 ? req.Pan[..6] : null;
         var masked = PciMasker.MaskPan(req.Pan, _pci);
@@ -74,11 +78,20 @@ public sealed class TokenVaultService : IPanVault
 
         await _pciAudit.PublishAsync("pci.tokenize", token, new { token, maskedPan = masked, bin, keyId = e.KeyId, actor, traceId }, ct);
 
+        sw.Stop();
+        Observability.VaultOperationsTotal.Add(1, new KeyValuePair<string, object?>("op", "tokenize"));
+        Observability.VaultOperationDurationMs.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("op", "tokenize"));
+        activity?.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds);
+
         return new TokenizeResponse(token, masked, bin, e.KeyId, e.CreatedOn);
     }
 
     public async Task<DetokenizeResponse> DetokenizeAsync(string token, string actor, string? traceId, CancellationToken ct)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var activity = Observability.ActivitySource.StartActivity("vault.detokenize");
+        activity?.SetTag("traceId", traceId);
+
         var e = await _db.TokenVault.FirstOrDefaultAsync(x => x.Token == token, ct)
             ?? throw new InvalidOperationException("Token not found");
 
@@ -98,6 +111,11 @@ public sealed class TokenVaultService : IPanVault
         }), ct);
 
         await _pciAudit.PublishAsync("pci.detokenize", token, new { token, maskedPan = e.MaskedPan, keyId = e.KeyId, actor, traceId }, ct);
+
+        sw.Stop();
+        Observability.VaultOperationsTotal.Add(1, new KeyValuePair<string, object?>("op", "detokenize"));
+        Observability.VaultOperationDurationMs.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("op", "detokenize"));
+        activity?.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds);
 
         return new DetokenizeResponse(token, payload.Pan, payload.ExpiryYyMm, e.KeyId);
     }
