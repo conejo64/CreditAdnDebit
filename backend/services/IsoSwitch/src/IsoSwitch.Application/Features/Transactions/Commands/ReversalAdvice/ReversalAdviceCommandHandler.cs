@@ -1,4 +1,4 @@
-using IsoSwitch.Api.Services;
+using IsoSwitch.Application.Config;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
@@ -6,7 +6,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.ReversalAdvice;
+namespace IsoSwitch.Application.Features.Transactions.Commands.ReversalAdvice;
 
 public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceCommand, ReversalAdviceResult>
 {

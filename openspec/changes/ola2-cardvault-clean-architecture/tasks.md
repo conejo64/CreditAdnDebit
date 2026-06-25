@@ -302,7 +302,19 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S2: IsoSwitch Application — Handlers + ConnectorRegistry + MediatR Scan
+## [x] Task IS-S2: IsoSwitch Application — Handlers + ConnectorRegistry + MediatR Scan
+
+**Done. Build 0 errors (acyclic), 650 tests green. Delegated to a guarded subagent after the orchestrator pre-decided the architecture; diff independently verified.**
+
+**Deviations from original plan (deliberate, verified):**
+- Moved ONLY what the handlers need to compile in Application: the 10 command/handler files, `ConnectorRegistry` (extracted from `Program.cs`), `Field90Service`, and `IsoConnectorConfig` (holds `IsoConfigRoot`). The pure-DTO files `IsoToolsDtos.cs` / `RoutingV24Dtos.cs` and the inline `Program.cs` records (SimPurchaseRequest, AuthorizeRequest, SwitchAuthApprovedV1, etc.) were NOT moved — verified the handlers reference none of them; they are host/demo concerns and stay in Api.
+- Accepted compromise (ARCH-DEP-2, CardVault ADR-6 precedent): `IsoSwitch.Application` now references `Infrastructure.Persistence` + `Infrastructure.SwitchIso8583` directly (handlers use `IsoSwitchDbContext`, `IRoutingEngineV2`, `IMacService`, `IAcquirerConnector` concretely). No speculative ports invented.
+- Removed the now-dead `→ Application` back-references from `Infrastructure.Persistence.csproj` and `Infrastructure.SwitchIso8583.csproj` (unused in source; required to keep the new Application→Infra direction acyclic — matches ADR-6's "remove dead Persistence→Application ref").
+- Stale `using IsoSwitch.Api.Routing/Services` removed from moved handlers; moved Domain/Port types resolved via project-level global usings.
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-11, ARCH-DEP-2, ARCH-PRES-4
 

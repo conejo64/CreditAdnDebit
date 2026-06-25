@@ -1,6 +1,6 @@
 using MediatR;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.NetworkManagement;
+namespace IsoSwitch.Application.Features.Transactions.Commands.NetworkManagement;
 
 public enum NetworkOperation
 {

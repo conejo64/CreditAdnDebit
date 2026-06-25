@@ -1,5 +1,5 @@
-using IsoSwitch.Api.Features.Transactions.Commands.AuthorizeTransaction;
-using IsoSwitch.Api.Services;
+using IsoSwitch.Application.Config;
+using IsoSwitch.Application.Features.Transactions.Commands.AuthorizeTransaction;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Connectors;
@@ -9,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
-using IsoSwitch.Api;
 using FluentAssertions;
 using IsoSwitch.Tests.Infrastructure;
 

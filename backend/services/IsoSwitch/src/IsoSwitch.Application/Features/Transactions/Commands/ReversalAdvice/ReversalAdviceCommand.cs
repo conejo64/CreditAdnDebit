@@ -1,6 +1,6 @@
 using MediatR;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.ReversalAdvice;
+namespace IsoSwitch.Application.Features.Transactions.Commands.ReversalAdvice;
 
 public record ReversalAdviceCommand(
     string TraceId,

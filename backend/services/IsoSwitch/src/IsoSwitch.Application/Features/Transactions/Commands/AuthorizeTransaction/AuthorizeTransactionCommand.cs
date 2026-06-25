@@ -1,7 +1,6 @@
 using MediatR;
-using IsoSwitch.Api.Endpoints;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.AuthorizeTransaction;
+namespace IsoSwitch.Application.Features.Transactions.Commands.AuthorizeTransaction;
 
 public record AuthorizeTransactionCommand(
     string TraceId,

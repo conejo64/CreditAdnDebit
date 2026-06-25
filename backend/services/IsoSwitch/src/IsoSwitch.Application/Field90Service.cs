@@ -1,4 +1,7 @@
-namespace IsoSwitch.Api;
+using IsoSwitch.Application.Config;
+using Microsoft.Extensions.Configuration;
+
+namespace IsoSwitch.Application;
 
 public sealed class Field90Service
 {

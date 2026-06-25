@@ -1,5 +1,7 @@
 using BuildingBlocks.Kafka;
 using IsoSwitch.Api;
+using IsoSwitch.Application;
+using IsoSwitch.Application.Config;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Api.Iso8583;
 using IsoSwitch.Api.Routing;
@@ -89,7 +91,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(IsoSwitchAuthorizationPolicies.ViewAudit, p => p.RequireAssertion(ctx =>
         RoleOrPerm(ctx.User, IsoSwitchAuthorizationPolicies.AuditViewPermission, "Admin", "Auditor")));
 });
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<IsoSwitch.Application.ApplicationMarker>());
 // Postgres (switch db)
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
 {
@@ -238,24 +240,6 @@ sealed class DbMigrateWorker : BackgroundService
         _logger.LogInformation("Applying migrations for IsoSwitchDbContext...");
         await db.Database.MigrateAsync(stoppingToken);
         _logger.LogInformation("Migrations applied.");
-    }
-}
-
-public sealed class ConnectorRegistry
-{
-    private readonly Dictionary<string, IAcquirerConnector> _map;
-    public ConnectorRegistry(IEnumerable<IAcquirerConnector> connectors)
-    {
-        _map = connectors.ToDictionary(c => c.ConnectorId, StringComparer.OrdinalIgnoreCase);
-    }
-
-    public IAcquirerConnector Get(string connectorId)
-    {
-        if (_map.TryGetValue(connectorId, out var c))
-            return c;
-        if (_map.TryGetValue("SIMULATOR", out var sim))
-            return sim;
-        throw new InvalidOperationException($"No connector registered for '{connectorId}'");
     }
 }
 

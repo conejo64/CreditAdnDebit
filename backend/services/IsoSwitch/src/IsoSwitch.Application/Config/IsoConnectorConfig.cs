@@ -1,4 +1,4 @@
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Application.Config;
 
 public sealed class IsoConnectorConfig
 {

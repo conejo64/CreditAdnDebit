@@ -1,6 +1,6 @@
 using MediatR;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.ReversalTransaction;
+namespace IsoSwitch.Application.Features.Transactions.Commands.ReversalTransaction;
 
 public record ReversalTransactionCommand(
     string OriginalTraceId,

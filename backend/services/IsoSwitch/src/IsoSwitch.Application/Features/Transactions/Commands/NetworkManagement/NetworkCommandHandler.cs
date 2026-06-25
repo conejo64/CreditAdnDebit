@@ -1,8 +1,8 @@
-using IsoSwitch.Api.Services;
+using IsoSwitch.Application.Config;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using MediatR;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.NetworkManagement;
+namespace IsoSwitch.Application.Features.Transactions.Commands.NetworkManagement;
 
 public class NetworkCommandHandler : IRequestHandler<NetworkCommand, NetworkResult>
 {

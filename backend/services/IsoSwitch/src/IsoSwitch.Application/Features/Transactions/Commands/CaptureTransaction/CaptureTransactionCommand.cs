@@ -1,6 +1,6 @@
 using MediatR;
 
-namespace IsoSwitch.Api.Features.Transactions.Commands.CaptureTransaction;
+namespace IsoSwitch.Application.Features.Transactions.Commands.CaptureTransaction;
 
 public record CaptureTransactionCommand(
     string TraceId,
