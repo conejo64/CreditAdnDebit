@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="IsoSwitch.Domain" />
+    <Using Include="IsoSwitch.Application.Ports" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,4 @@
-namespace IsoSwitch.Infrastructure.SwitchIso8583.Iso;
+namespace IsoSwitch.Domain;
 
 public sealed class IsoMessage
 {

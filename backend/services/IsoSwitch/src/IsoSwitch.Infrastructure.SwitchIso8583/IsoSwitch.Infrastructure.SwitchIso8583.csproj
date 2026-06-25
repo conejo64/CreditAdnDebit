@@ -5,10 +5,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\IsoSwitch.Domain\IsoSwitch.Domain.csproj" />
     <ProjectReference Include="..\IsoSwitch.Application\IsoSwitch.Application.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="IsoSwitch.Domain" />
   </ItemGroup>
 </Project>

@@ -252,7 +252,19 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S1: IsoSwitch Domain + Application Ports
+## [x] Task IS-S1: IsoSwitch Domain + Application Ports
+
+**Deviations from original plan (verified against live code):**
+- `IRoutingEngineV2` is NOT in `IsoSwitch.Api` (the task assumed so) — it lives in `Infrastructure.SwitchIso8583/Routing/`. It was **NOT moved** to Application.Ports: its return type `RoutingDecision` embeds EF entities (`BinRangesCache`, `RoutingRulesV2` from `Infrastructure.Persistence`), a data-type dependency a port cannot break (same rationale as CardVault ADR-6 rejecting `ICardVaultDbContext`). Deferred to IS-S2/S3 under the ARCH-DEP-2 compromise. Stays in Infrastructure for now.
+- `IsoMessage` (POCO, dependency-free) was MOVED `Infrastructure.SwitchIso8583/Iso/` → `IsoSwitch.Domain/` (user-approved). Required because `IIsoAuditService.LogAsync(..., IsoMessage, ...)` references it; with IsoMessage in Domain the port moves to Application.Ports cleanly without Application referencing Infrastructure.
+- `OriginalDataElementsBuilder.BuildFromConfig(IConfiguration, ...)` wrapper REMOVED (it pulled `IConfiguration` into Domain). The pure `Build(...primitives...)` method moves to Domain; the single caller `Field90Service` (Api) now extracts `Iso:AcqInstId`/`Iso:FwdInstId` from config and calls `Build` (ADR-7-style primitive re-parameterization).
+- Moved Domain/Port types resolved via project-level `<Using Include="..." />` global usings (Api, Infrastructure.SwitchIso8583, Tests) instead of per-file using edits — keeps the ISO codec files untouched.
+
+**Build: 0 errors, no circular refs. Tests: 650 green. Domain is dependency-free (0 ProjectReferences).**
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-9, ARCH-10, ARCH-DEP-1, ARCH-DEP-2
 

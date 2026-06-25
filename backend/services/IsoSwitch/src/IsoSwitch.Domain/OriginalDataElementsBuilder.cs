@@ -1,4 +1,4 @@
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Domain;
 
 /// <summary>
 /// Field 90 (Original Data Elements) builder.
@@ -14,13 +14,6 @@ public static class OriginalDataElementsBuilder
         var acq = Normalize11(acqInstId);
         var fwd = Normalize11(fwdInstId);
         return $"{mti}{s}{dt}{acq}{fwd}";
-    }
-
-    public static string BuildFromConfig(IConfiguration cfg, string originalMti, string stan, DateTimeOffset originalTransmissionTime)
-    {
-        var acq = cfg.GetValue<string>("Iso:AcqInstId") ?? "0";
-        var fwd = cfg.GetValue<string>("Iso:FwdInstId") ?? "0";
-        return Build(originalMti, stan, originalTransmissionTime, acq, fwd);
     }
 
     private static string Normalize11(string? v)

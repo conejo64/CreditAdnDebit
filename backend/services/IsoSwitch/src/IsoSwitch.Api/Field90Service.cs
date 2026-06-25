@@ -16,6 +16,8 @@ public sealed class Field90Service
         if (_root.Connectors.TryGetValue(connectorId, out var c))
             return OriginalDataElementsBuilder.Build(originalMti, stan, originalTransmissionTime, c.AcqInstId, c.FwdInstId);
 
-        return OriginalDataElementsBuilder.BuildFromConfig(_cfg, originalMti, stan, originalTransmissionTime);
+        var acq = _cfg.GetValue<string>("Iso:AcqInstId") ?? "0";
+        var fwd = _cfg.GetValue<string>("Iso:FwdInstId") ?? "0";
+        return OriginalDataElementsBuilder.Build(originalMti, stan, originalTransmissionTime, acq, fwd);
     }
 }

@@ -1,8 +1,8 @@
-using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using System.Threading;
 using System.Threading.Tasks;
+using IsoSwitch.Domain;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Application.Ports;
 
 public interface IIsoAuditService
 {

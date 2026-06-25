@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Application.Ports;
 
 public interface ISwitchEventPublisher
 {

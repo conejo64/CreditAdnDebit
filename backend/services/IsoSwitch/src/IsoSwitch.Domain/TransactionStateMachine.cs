@@ -1,4 +1,4 @@
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Domain;
 
 public static class TransactionStateMachine
 {
