@@ -1,9 +1,9 @@
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
-using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Infrastructure.Messaging;
 
 public sealed class BinaryIsoAuditService : IIsoAuditService
 {

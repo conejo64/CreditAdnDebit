@@ -1,7 +1,8 @@
 using Confluent.Kafka;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Infrastructure.Messaging;
 
 public sealed class SwitchEventPublisher : ISwitchEventPublisher, IDisposable
 {

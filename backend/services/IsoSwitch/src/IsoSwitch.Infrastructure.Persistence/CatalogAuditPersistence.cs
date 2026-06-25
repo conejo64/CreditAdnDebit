@@ -1,10 +1,9 @@
-using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Audit;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Infrastructure.Persistence;
 
 public sealed class CatalogAuditPersistence
 {

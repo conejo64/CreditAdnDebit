@@ -359,7 +359,20 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S3: IsoSwitch Infrastructure Extraction
+## [x] Task IS-S3: IsoSwitch Infrastructure Extraction
+
+**Done. Build 0 errors (acyclic), 650 tests green. New leaf project created.**
+
+**Deviations from original plan (the written plan was infeasible — would create a cycle):**
+- The plan said move the concrete `IIsoAuditService`/`ISwitchEventPublisher` impls into `Infrastructure.Persistence` which "references Application". IMPOSSIBLE after IS-S2 made `Application → Infrastructure.Persistence` (would be a cycle). Resolution: created a NEW leaf project `IsoSwitch.Infrastructure.Messaging` (refs Application + Domain + Persistence + BuildingBlocks + Kafka; Application does NOT ref it → acyclic), mirroring CardVault's Infrastructure.Messaging. Moved there: `SwitchEventPublisher`, `IsoAuditService`, `BinaryIsoAuditService`.
+- `ConfigSyncConsumer` (was inline in Program.cs, not a separate file as the plan assumed) → extracted to `Infrastructure.Consumers`. `DbMigrateWorker` (also inline in Program.cs) → `Infrastructure.Persistence` (only needs DbContext, no Application dep → no cycle).
+- `CatalogAuditPersistence` (no port, only uses IsoSwitchDbContext) → `Infrastructure.Persistence` directly.
+- Consumers of moved types resolved via project-level global usings in Api (`IsoSwitch.Infrastructure.Messaging`, `IsoSwitch.Infrastructure.Consumers`) plus targeted per-file usings for `CatalogAuditPersistence` (Persistence ns); Program.cs FQNs `IsoSwitch.Api.CatalogAuditPersistence` → short name.
+- Final IsoSwitch graph (acyclic, inward): Domain ← Application(+Persistence,+SwitchIso8583) ← {Messaging, Consumers} ← Api. Infra leaf projects ref Application one-way.
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-12, ARCH-DEP-3
 

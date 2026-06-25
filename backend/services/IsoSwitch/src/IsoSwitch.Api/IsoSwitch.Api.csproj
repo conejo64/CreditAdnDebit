@@ -12,6 +12,7 @@
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.SwitchIso8583\IsoSwitch.Infrastructure.SwitchIso8583.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Consumers\IsoSwitch.Infrastructure.Consumers.csproj" />
+    <ProjectReference Include="..\IsoSwitch.Infrastructure.Messaging\IsoSwitch.Infrastructure.Messaging.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
       <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.9.0" />
       <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
@@ -24,6 +25,8 @@
   <ItemGroup>
     <Using Include="IsoSwitch.Domain" />
     <Using Include="IsoSwitch.Application.Ports" />
+    <Using Include="IsoSwitch.Infrastructure.Messaging" />
+    <Using Include="IsoSwitch.Infrastructure.Consumers" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />

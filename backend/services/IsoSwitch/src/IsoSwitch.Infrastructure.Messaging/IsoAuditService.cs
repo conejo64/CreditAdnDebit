@@ -1,9 +1,8 @@
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
-using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using System.Text.Json;
 
-namespace IsoSwitch.Api;
+namespace IsoSwitch.Infrastructure.Messaging;
 
 public sealed class IsoAuditService : IIsoAuditService
 {

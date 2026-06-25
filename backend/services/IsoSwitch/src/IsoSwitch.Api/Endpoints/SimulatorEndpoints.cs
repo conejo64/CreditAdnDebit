@@ -1,6 +1,7 @@
 using IsoSwitch.Api.Background;
 using IsoSwitch.Api.Iso8583;
 using IsoSwitch.Api.Security;
+using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Api.Tcp;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using IsoSwitch.Infrastructure.SwitchIso8583.Net;
