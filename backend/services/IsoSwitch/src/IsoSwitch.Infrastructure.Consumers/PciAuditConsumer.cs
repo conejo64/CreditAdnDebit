@@ -1,9 +1,11 @@
 using BuildingBlocks.Kafka;
 using Confluent.Kafka;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using IsoSwitch.Api.Services;
+using IsoSwitch.Infrastructure.Persistence;
 
-namespace IsoSwitch.Api.Consumers;
+namespace IsoSwitch.Infrastructure.Consumers;
 
 public sealed class PciAuditConsumer : KafkaConsumerWorker
 {

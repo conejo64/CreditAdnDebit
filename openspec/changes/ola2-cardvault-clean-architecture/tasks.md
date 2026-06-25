@@ -407,7 +407,26 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S4: IsoSwitch Api — Thin Composition Root Verification
+## [x] Task IS-S4: IsoSwitch Api — Thin Composition Root Verification
+
+**Done. Build 0 errors, 650 tests green. Verification caught 2 adapters IS-S3 missed; moved them.**
+
+**Findings + actions (verification was NOT a no-op):**
+- `Services/AuditService.cs` (DB audit writer, no port, uses IsoSwitchDbContext) → moved to `Infrastructure.Persistence` (no cycle, like CatalogAuditPersistence).
+- `Consumers/PciAuditConsumer.cs` (KafkaConsumerWorker) → moved to `Infrastructure.Consumers` (like ConfigSyncConsumer); now references AuditService from Persistence.
+- Removed empty ghost dirs left by IS-S2/S3 moves: `Features/`, `Consumers/`, `Services/`.
+- Cleaned stale `using IsoSwitch.Api.Services/Consumers` from Program.cs, AuditEndpoints, TransactionEndpoints; Api consumers of the moved types resolve via global usings (Messaging/Consumers) + existing Persistence usings.
+
+**Accepted exceptions (stay in Api as host/dev concerns — CV-S6 precedent for workers):**
+- `Background/SwitchResponseConsumer.cs` — dev/diagnostic Kafka consumer feeding a static `LastResponses` queue, coupled to Api-resident `Iso8583`/`Tcp` host stack; cannot move without an Infra→Api cycle.
+- `ReversalWorker.cs` — host-lifecycle background worker (reversal retry loop via DI scope).
+- `IsoSimulatorServer.cs`, `IsoToolsDtos.cs`, `RoutingV24Dtos.cs`, `IdempotencyExtensions.cs`, `Observability.cs` — dev/demo/host concerns.
+
+**Final Api source: Program.cs, Endpoints/**, Tcp/** (dev codec + TcpIso8583Server), Iso8583/** (codec), Security/**, Routing/BinRoutingStore.cs, Persistence/JsonFileStore.cs, Background/** (2 host workers), Observability.cs, + host/demo DTOs. NO handlers, NO ConnectorRegistry, NO business services, NO port impls. `public partial class Program {}` present; both InitializeFromDbAsync startup calls preserved in order.**
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-13, ARCH-PRES-1, ARCH-PRES-2, ARCH-PRES-3
 

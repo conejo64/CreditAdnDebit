@@ -4,7 +4,7 @@ using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Audit;
 using Microsoft.EntityFrameworkCore;
 
-namespace IsoSwitch.Api.Services;
+namespace IsoSwitch.Infrastructure.Persistence;
 
 public sealed class AuditService
 {

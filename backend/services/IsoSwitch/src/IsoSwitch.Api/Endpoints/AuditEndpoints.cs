@@ -1,4 +1,3 @@
-using IsoSwitch.Api.Services;
 using IsoSwitch.Api.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
