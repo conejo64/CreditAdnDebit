@@ -1,4 +1,4 @@
-using CardVault.Api.Features.Delinquency.Queries;
+using CardVault.Application.Features.Delinquency.Queries;
 using FluentAssertions;
 
 namespace CardVault.Tests.Features.Collections;

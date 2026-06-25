@@ -1,6 +1,7 @@
 using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
 using CardVault.Api.Pci;
+using CardVault.Application.Ports;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Outbox;
 using CardVault.Infrastructure.Persistence.Vault;
@@ -10,21 +11,23 @@ using System.Text.Json;
 
 namespace CardVault.Api.Vault;
 
-public sealed class TokenVaultService
+public sealed class TokenVaultService : IPanVault
 {
     private readonly VaultSettingsStore _settings;
+    private readonly VaultOptions _vaultOptions;
     private readonly PciOptions _pci;
     private readonly PciAuditPublisher _pciAudit;
     private readonly CardVaultDbContext _db;
     private readonly VaultCrypto _crypto;
     private readonly IEventBus _bus;
 
-    public TokenVaultService(CardVaultDbContext db, VaultCrypto crypto, IEventBus bus, VaultSettingsStore settings, PciOptions pci, PciAuditPublisher pciAudit)
+    public TokenVaultService(CardVaultDbContext db, VaultCrypto crypto, IEventBus bus, VaultSettingsStore settings, VaultOptions vaultOptions, PciOptions pci, PciAuditPublisher pciAudit)
     {
         _db = db;
         _crypto = crypto;
         _bus = bus;
         _settings = settings;
+        _vaultOptions = vaultOptions;
         _pci = pci;
         _pciAudit = pciAudit;
     }
@@ -33,70 +36,110 @@ public sealed class TokenVaultService
 
     public async Task<TokenizeResponse> TokenizeAsync(TokenizeRequest req, string actor, string? traceId, CancellationToken ct)
     {
-        var token = "tok_" + Base64Url(RandomNumberGenerator.GetBytes(18));
-        var bin = req.Pan.Length >= 6 ? req.Pan[..6] : null;
-        var masked = PciMasker.MaskPan(req.Pan, _pci);
-
-        var activeKeyId = await _settings.GetActiveKeyIdAsync(ct);
-        _crypto.SetActiveKeyId(activeKeyId);
-
-        var parts = _crypto.EncryptToParts(new SensitiveCardPayload(req.Pan, req.ExpiryYyMm));
-
-        var e = new TokenVaultEntryEntity
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var activity = Observability.ActivitySource.StartActivity("vault.tokenize");
+        activity?.SetTag("traceId", traceId);
+        var outcome = "ok";
+        try
         {
-            Id = Guid.NewGuid(),
-            Token = token,
-            KeyId = parts.keyId,
-            NonceB64 = parts.nonceB64,
-            CiphertextB64 = parts.cipherB64,
-            TagB64 = parts.tagB64,
-            MaskedPan = masked,
-            Bin = bin,
-            CreatedOn = DateTimeOffset.UtcNow
-        };
+            var token = "tok_" + Base64Url(RandomNumberGenerator.GetBytes(18));
+            var bin = req.Pan.Length >= 6 ? req.Pan[..6] : null;
+            var masked = PciMasker.MaskPan(req.Pan, _pci);
 
-        _db.TokenVault.Add(e);
-        await _db.SaveChangesAsync(ct);
+            var activeKeyId = await _settings.GetActiveKeyIdAsync(ct);
+            _crypto.SetActiveKeyId(activeKeyId);
 
-        await _bus.PublishAsync("sw.cardvault.audit", token, JsonSerializer.Serialize(new
+            var parts = _crypto.EncryptToParts(new SensitiveCardPayload(req.Pan, req.ExpiryYyMm));
+
+            var e = new TokenVaultEntryEntity
+            {
+                Id = Guid.NewGuid(),
+                Token = token,
+                KeyId = parts.keyId,
+                NonceB64 = parts.nonceB64,
+                CiphertextB64 = parts.cipherB64,
+                TagB64 = parts.tagB64,
+                MaskedPan = masked,
+                Bin = bin,
+                CreatedOn = DateTimeOffset.UtcNow
+            };
+
+            _db.TokenVault.Add(e);
+            await _db.SaveChangesAsync(ct);
+
+            await _bus.PublishAsync("sw.cardvault.audit", token, JsonSerializer.Serialize(new
+            {
+                type = "cardvault.tokenize",
+                token,
+                maskedPan = masked,
+                bin,
+                keyId = e.KeyId,
+                actor,
+                at = DateTimeOffset.UtcNow
+            }), ct);
+
+            await _pciAudit.PublishAsync("pci.tokenize", token, new { token, maskedPan = masked, bin, keyId = e.KeyId, actor, traceId }, ct);
+
+            return new TokenizeResponse(token, masked, bin, e.KeyId, e.CreatedOn);
+        }
+        catch
         {
-            type = "cardvault.tokenize",
-            token,
-            maskedPan = masked,
-            bin,
-            keyId = e.KeyId,
-            actor,
-            at = DateTimeOffset.UtcNow
-        }), ct);
-
-        await _pciAudit.PublishAsync("pci.tokenize", token, new { token, maskedPan = masked, bin, keyId = e.KeyId, actor, traceId }, ct);
-
-        return new TokenizeResponse(token, masked, bin, e.KeyId, e.CreatedOn);
+            outcome = "error";
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            sw.Stop();
+            Observability.VaultOperationsTotal.Add(1, new KeyValuePair<string, object?>("op", "tokenize"), new KeyValuePair<string, object?>("outcome", outcome));
+            Observability.VaultOperationDurationMs.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("op", "tokenize"), new KeyValuePair<string, object?>("outcome", outcome));
+            activity?.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds);
+        }
     }
 
     public async Task<DetokenizeResponse> DetokenizeAsync(string token, string actor, string? traceId, CancellationToken ct)
     {
-        var e = await _db.TokenVault.FirstOrDefaultAsync(x => x.Token == token, ct)
-            ?? throw new InvalidOperationException("Token not found");
-
-        var payload = _crypto.DecryptFromParts<SensitiveCardPayload>(e.KeyId, e.NonceB64, e.CiphertextB64, e.TagB64);
-
-        e.LastAccessedOn = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-
-        await _bus.PublishAsync("sw.cardvault.audit", token, JsonSerializer.Serialize(new
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var activity = Observability.ActivitySource.StartActivity("vault.detokenize");
+        activity?.SetTag("traceId", traceId);
+        var outcome = "ok";
+        try
         {
-            type = "cardvault.detokenize",
-            token,
-            maskedPan = e.MaskedPan,
-            keyId = e.KeyId,
-            actor,
-            at = DateTimeOffset.UtcNow
-        }), ct);
+            var e = await _db.TokenVault.FirstOrDefaultAsync(x => x.Token == token, ct)
+                ?? throw new InvalidOperationException("Token not found");
 
-        await _pciAudit.PublishAsync("pci.detokenize", token, new { token, maskedPan = e.MaskedPan, keyId = e.KeyId, actor, traceId }, ct);
+            var payload = _crypto.DecryptFromParts<SensitiveCardPayload>(e.KeyId, e.NonceB64, e.CiphertextB64, e.TagB64);
 
-        return new DetokenizeResponse(token, payload.Pan, payload.ExpiryYyMm, e.KeyId);
+            e.LastAccessedOn = DateTimeOffset.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            await _bus.PublishAsync("sw.cardvault.audit", token, JsonSerializer.Serialize(new
+            {
+                type = "cardvault.detokenize",
+                token,
+                maskedPan = e.MaskedPan,
+                keyId = e.KeyId,
+                actor,
+                at = DateTimeOffset.UtcNow
+            }), ct);
+
+            await _pciAudit.PublishAsync("pci.detokenize", token, new { token, maskedPan = e.MaskedPan, keyId = e.KeyId, actor, traceId }, ct);
+
+            return new DetokenizeResponse(token, payload.Pan, payload.ExpiryYyMm, e.KeyId);
+        }
+        catch
+        {
+            outcome = "error";
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            sw.Stop();
+            Observability.VaultOperationsTotal.Add(1, new KeyValuePair<string, object?>("op", "detokenize"), new KeyValuePair<string, object?>("outcome", outcome));
+            Observability.VaultOperationDurationMs.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("op", "detokenize"), new KeyValuePair<string, object?>("outcome", outcome));
+            activity?.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds);
+        }
     }
 
     public async Task<TokenMetadataResponse> GetMetadataAsync(string token, CancellationToken ct)
@@ -202,6 +245,44 @@ public sealed class TokenVaultService
         await _settings.UpdateReencryptStateAsync(updated > 0 ? "completed" : "noop", updated, ct);
 
         return new ReEncryptBatchResponse(active, updated, DateTimeOffset.UtcNow);
+    }
+
+// IPanVault port implementation — maps internal records to Application port types
+    async Task<TokenizeResult> IPanVault.TokenizeAsync(string pan, string? expiryYyMm, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await TokenizeAsync(new TokenizeRequest(pan, expiryYyMm), actor, traceId, ct);
+        return new TokenizeResult(r.Token, r.MaskedPan, r.Bin, r.KeyId, r.CreatedOn);
+    }
+
+    async Task<DetokenizeResult> IPanVault.DetokenizeAsync(string token, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await DetokenizeAsync(token, actor, traceId, ct);
+        return new DetokenizeResult(r.Token, r.Pan, r.ExpiryYyMm, r.KeyId);
+    }
+
+    async Task<TokenMetadataResult> IPanVault.GetMetadataAsync(string token, CancellationToken ct)
+    {
+        var r = await GetMetadataAsync(token, ct);
+        return new TokenMetadataResult(r.Token, r.MaskedPan, r.Bin, r.KeyId, r.CreatedOn, r.LastAccessedOn);
+    }
+
+    async Task<RotateKeyResult> IPanVault.RotateActiveKeyAsync(string newActiveKeyId, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await RotateActiveKeyAsync(newActiveKeyId, actor, traceId, ct);
+        return new RotateKeyResult(r.ActiveKeyId, r.RotatedOn, r.Actor);
+    }
+
+    async Task<ReEncryptBatchResult> IPanVault.ReEncryptBatchAsync(int take, string actor, string? traceId, CancellationToken ct)
+    {
+        var r = await ReEncryptBatchAsync(take, actor, traceId, ct);
+        return new ReEncryptBatchResult(r.ActiveKeyId, r.UpdatedCount, r.RotatedOn);
+    }
+
+    async Task<(string ActiveKeyId, IReadOnlyList<string> AvailableKeyIds)> IPanVault.GetActiveKeyInfoAsync(CancellationToken ct)
+    {
+        var active = await _settings.GetActiveKeyIdAsync(ct);
+        var available = _vaultOptions.Keys.Keys.OrderBy(k => k).ToList();
+        return (active, available);
     }
 
 private static string Mask(string pan)

@@ -1,4 +1,4 @@
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
 using CardVault.Api.Security;
 using CardVault.Infrastructure.Identity.Auth;
 using Microsoft.AspNetCore.Authorization;

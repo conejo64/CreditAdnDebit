@@ -33,7 +33,7 @@ public sealed class TokenVaultServiceRotateAuditTests
         var pciOpt   = new PciOptions();
         var pciAudit = new PciAuditPublisher(bus);
 
-        return new TokenVaultService(db, crypto, bus, settings, pciOpt, pciAudit);
+        return new TokenVaultService(db, crypto, bus, settings, vaultOpt, pciOpt, pciAudit);
     }
 
     // ─── Scenario: rotate writes exactly one outbox row ───────────────────────

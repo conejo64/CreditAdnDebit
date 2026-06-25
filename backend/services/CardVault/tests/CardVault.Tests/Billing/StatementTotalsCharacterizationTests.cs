@@ -1,5 +1,6 @@
-using CardVault.Api.Background;
-using CardVault.Api.Services;
+using CardVault.Infrastructure.Messaging.Consumers;
+using CardVault.Application.Services;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Issuer;

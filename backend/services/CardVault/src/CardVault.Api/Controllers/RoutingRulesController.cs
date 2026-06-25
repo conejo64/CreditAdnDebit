@@ -2,8 +2,8 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
-using CardVault.Api.Features.RoutingRules.Commands;
-using CardVault.Api.Features.RoutingRules.Queries;
+using CardVault.Application.Features.RoutingRules.Commands;
+using CardVault.Application.Features.RoutingRules.Queries;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Routing;
 

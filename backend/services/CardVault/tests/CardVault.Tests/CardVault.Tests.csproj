@@ -26,17 +26,13 @@
     <ProjectReference Include="..\..\src\CardVault.Api\CardVault.Api.csproj" />
     <ProjectReference Include="..\..\src\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\..\src\CardVault.Application\CardVault.Application.csproj" />
+    <ProjectReference Include="..\..\src\CardVault.Infrastructure.Notifications\CardVault.Infrastructure.Notifications.csproj" />
   </ItemGroup>
 
-  <!-- Copy notification templates to test output so RazorNotificationTemplateRenderer.Create()
-       can locate them via AppContext.BaseDirectory/Services/Notifications/Templates at test time.
-       The test project uses Microsoft.NET.Sdk (not .Web), so .cshtml files here are plain
-       content and are NOT compiled as ASP.NET Core views. -->
-  <ItemGroup>
-    <Content Include="..\..\src\CardVault.Api\Services\Notifications\Templates\*.cshtml">
-      <Link>Services\Notifications\Templates\%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!-- Notification templates are copied to "Templates/" in this test project's output
+       automatically via the ProjectReference to CardVault.Infrastructure.Notifications
+       (its Content/CopyToOutputDirectory items propagate to referencing projects), which
+       is exactly where RazorNotificationTemplateRenderer.Create() looks. No explicit copy
+       needed here — that previously masked a production path bug. -->
 
 </Project>

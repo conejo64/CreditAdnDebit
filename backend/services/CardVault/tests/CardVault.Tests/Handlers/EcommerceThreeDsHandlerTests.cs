@@ -1,10 +1,11 @@
 using BuildingBlocks.Outbox;
-using CardVault.Api.Contracts;
-using CardVault.Api.Features.Ecommerce3ds.Commands;
-using CardVault.Api.Features.Ecommerce3ds.Queries;
+using CardVault.Application.Contracts;
+using CardVault.Application.Features.Ecommerce3ds.Commands;
+using CardVault.Application.Features.Ecommerce3ds.Queries;
 using CardVault.Api.Pci;
-using CardVault.Api.Services;
+using CardVault.Application.Services;
 using CardVault.Api.Vault;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Ecommerce;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;

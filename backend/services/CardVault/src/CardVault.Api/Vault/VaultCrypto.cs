@@ -1,10 +1,11 @@
+using CardVault.Application.Ports;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 namespace CardVault.Api.Vault;
 
-public sealed class VaultCrypto
+public sealed class VaultCrypto : IContactDataEncryptor
 {
     private readonly VaultOptions _opt;
     private readonly IReadOnlyDictionary<string, byte[]> _keys;

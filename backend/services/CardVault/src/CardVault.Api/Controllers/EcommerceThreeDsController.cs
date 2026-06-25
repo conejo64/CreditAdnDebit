@@ -1,7 +1,7 @@
 using System.Security.Claims;
-using CardVault.Api.Contracts;
-using CardVault.Api.Features.Ecommerce3ds.Commands;
-using CardVault.Api.Features.Ecommerce3ds.Queries;
+using CardVault.Application.Contracts;
+using CardVault.Application.Features.Ecommerce3ds.Commands;
+using CardVault.Application.Features.Ecommerce3ds.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

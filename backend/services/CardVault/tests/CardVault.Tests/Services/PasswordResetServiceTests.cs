@@ -1,4 +1,4 @@
-using CardVault.Api.Services;
+using CardVault.Application.Services;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;

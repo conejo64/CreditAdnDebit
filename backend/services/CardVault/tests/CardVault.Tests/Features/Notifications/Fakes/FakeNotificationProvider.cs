@@ -1,4 +1,4 @@
-using CardVault.Api.Services.Notifications;
+using CardVault.Infrastructure.Notifications;
 using CardVault.Infrastructure.Persistence.Notifications;
 
 namespace CardVault.Tests.Features.Notifications.Fakes;

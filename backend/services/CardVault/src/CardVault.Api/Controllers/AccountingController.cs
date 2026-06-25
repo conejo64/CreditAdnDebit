@@ -1,6 +1,6 @@
-using CardVault.Api.Contracts;
-using CardVault.Api.Features.Accounting.Commands;
-using CardVault.Api.Features.Accounting.Queries;
+using CardVault.Application.Contracts;
+using CardVault.Application.Features.Accounting.Commands;
+using CardVault.Application.Features.Accounting.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

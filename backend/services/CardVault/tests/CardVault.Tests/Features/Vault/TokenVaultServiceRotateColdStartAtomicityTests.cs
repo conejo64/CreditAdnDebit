@@ -50,7 +50,7 @@ public sealed class TokenVaultServiceRotateColdStartAtomicityTests
         var settings = new VaultSettingsStore(db);
         var pciOpt   = new PciOptions();
         var pciAudit = new PciAuditPublisher(bus);
-        var svc      = new TokenVaultService(db, crypto, bus, settings, pciOpt, pciAudit);
+        var svc      = new TokenVaultService(db, crypto, bus, settings, vaultOpt, pciOpt, pciAudit);
 
         return (db, svc);
     }
@@ -71,7 +71,7 @@ public sealed class TokenVaultServiceRotateColdStartAtomicityTests
         var settings = new VaultSettingsStore(db);
         var pciOpt   = new PciOptions();
         var pciAudit = new PciAuditPublisher(bus);
-        return new TokenVaultService(db, crypto, bus, settings, pciOpt, pciAudit);
+        return new TokenVaultService(db, crypto, bus, settings, vaultOpt, pciOpt, pciAudit);
     }
 
     /// <summary>

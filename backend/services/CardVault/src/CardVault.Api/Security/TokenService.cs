@@ -1,5 +1,6 @@
 using CardVault.Api.Security;
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
+using CardVault.Application.Ports;
 using CardVault.Infrastructure.Identity.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,7 @@ using System.Text;
 
 namespace CardVault.Api.Security;
 
-public class TokenService
+public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
 {
     private readonly JwtOptions _opt;
     private readonly UserManager<AppUser> _users;
@@ -167,4 +168,8 @@ public class TokenService
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken));
         return Convert.ToHexString(bytes);
     }
+
+    // IUserTokenService explicit instance implementations for static helpers
+    string IUserTokenService.GenerateRefreshToken() => GenerateRefreshToken();
+    string IUserTokenService.HashRefreshToken(string refreshToken) => HashRefreshToken(refreshToken);
 }

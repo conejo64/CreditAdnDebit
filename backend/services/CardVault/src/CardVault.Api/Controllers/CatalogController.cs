@@ -1,8 +1,8 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CardVault.Api.Features.Catalog.Commands;
-using CardVault.Api.Features.Catalog.Queries;
+using CardVault.Application.Features.Catalog.Commands;
+using CardVault.Application.Features.Catalog.Queries;
 
 namespace CardVault.Api.Controllers;
 

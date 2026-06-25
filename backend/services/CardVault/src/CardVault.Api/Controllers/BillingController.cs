@@ -2,9 +2,11 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using CardVault.Application.Contracts;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Billing;
-using CardVault.Api.Features.Billing.Commands;
-using CardVault.Api.Features.Billing.Queries;
+using CardVault.Application.Features.Billing.Commands;
+using CardVault.Application.Features.Billing.Queries;
 
 namespace CardVault.Api.Controllers;
 
@@ -112,4 +114,4 @@ public class BillingController : ControllerBase
     }
 }
 
-public record DeferPurchaseRequest(Guid AccountId, Guid LedgerEntryId, int Installments, decimal? Apr);
+// DeferPurchaseRequest moved to CardVault.Application.Contracts

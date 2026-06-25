@@ -5,8 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CardVault.Application\CardVault.Application.csproj" />
-    <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
+<ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.0" />

@@ -2,9 +2,11 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using CardVault.Application.Contracts;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Billing;
-using CardVault.Api.Features.Risk.Commands;
-using CardVault.Api.Features.Risk.Queries;
+using CardVault.Application.Features.Risk.Commands;
+using CardVault.Application.Features.Risk.Queries;
 
 namespace CardVault.Api.Controllers;
 

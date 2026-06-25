@@ -1,9 +1,10 @@
 using BuildingBlocks.Outbox;
+using CardVault.Application.Ports;
 using System.Text.Json;
 
 namespace CardVault.Api.Pci;
 
-public sealed class PciAuditPublisher
+public sealed class PciAuditPublisher : IPciAuditPublisher
 {
     private readonly IEventBus _bus;
 

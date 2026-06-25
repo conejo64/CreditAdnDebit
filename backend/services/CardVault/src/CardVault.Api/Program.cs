@@ -1,7 +1,8 @@
 using BuildingBlocks.Kafka;
 using BuildingBlocks.Outbox;
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
 using CardVault.Api.Security;
+using CardVault.Domain;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Outbox;
@@ -14,14 +15,16 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using CardVault.Api.Services;
-using CardVault.Api.Services.Notifications;
-using CardVault.Api.Services.Notifications.Providers;
-using CardVault.Api.Services.Notifications.Templates;
-using CardVault.Api.Services.Notifications.Webhooks;
-using CardVault.Api.Background;
+using CardVault.Application;
+using CardVault.Application.Services;
+using CardVault.Infrastructure.Notifications;
+using CardVault.Infrastructure.Notifications.Providers;
+using CardVault.Infrastructure.Notifications.Templates;
+using CardVault.Infrastructure.Notifications.Webhooks;
+using CardVault.Infrastructure.Messaging.Consumers;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Api.Pci;
+using CardVault.Infrastructure.Messaging.Publishers;
 using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Switch;
@@ -57,7 +60,7 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddControllers();
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<ApplicationMarker>());
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<IssuerService>();
 builder.Services.AddScoped<CreditPolicyService>();
@@ -81,6 +84,7 @@ builder.Services.AddScoped<HoldMaintenanceService>();
 builder.Services.AddScoped<AvailableCreditService>();
 builder.Services.AddScoped<RiskDecisionService>();
 builder.Services.AddScoped<AuthDecisionPublisher>();
+builder.Services.AddScoped<CardVault.Application.Ports.IAuthDecisionPublisher>(sp => sp.GetRequiredService<AuthDecisionPublisher>());
 builder.Services.AddScoped<StatementPdfService>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<InstallmentService>();
@@ -148,8 +152,11 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<CardVault.Application.Ports.IUserTokenService>(sp => sp.GetRequiredService<TokenService>());
+builder.Services.AddScoped<CardVault.Application.Ports.IOpenBankingTokenIssuer>(sp => sp.GetRequiredService<TokenService>());
 builder.Services.AddSingleton(builder.Configuration.GetSection("Pci").Get<PciOptions>() ?? new PciOptions());
 builder.Services.AddScoped<PciAuditPublisher>();
+builder.Services.AddScoped<CardVault.Application.Ports.IPciAuditPublisher>(sp => sp.GetRequiredService<PciAuditPublisher>());
 builder.Services.AddTransient<CardVault.Api.Pci.RequestIdMiddleware>();
 // DbContexts
 builder.Services.AddDbContext<CardVaultDbContext>(opt => opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
@@ -269,7 +276,9 @@ builder.Services.AddRateLimiter(options =>
 var vaultOpt = builder.Configuration.GetSection("Vault").Get<CardVault.Api.Vault.VaultOptions>() ?? new CardVault.Api.Vault.VaultOptions();
 builder.Services.AddSingleton(vaultOpt);
 builder.Services.AddSingleton<CardVault.Api.Vault.VaultCrypto>();
+builder.Services.AddSingleton<CardVault.Application.Ports.IContactDataEncryptor>(sp => sp.GetRequiredService<CardVault.Api.Vault.VaultCrypto>());
 builder.Services.AddScoped<CardVault.Api.Vault.TokenVaultService>();
+builder.Services.AddScoped<CardVault.Application.Ports.IPanVault>(sp => sp.GetRequiredService<CardVault.Api.Vault.TokenVaultService>());
 builder.Services.AddScoped<CardVault.Api.Vault.VaultSettingsStore>();
 // Vault job options + hosted services
 var vaultJobOpt = builder.Configuration.GetSection("VaultJob").Get<CardVault.Api.Vault.VaultJobOptions>() ?? new CardVault.Api.Vault.VaultJobOptions();
@@ -284,8 +293,8 @@ builder.Services.AddHostedService<EfOutboxPublisher>();
 builder.Services.AddHostedService<SwitchTxnConsumer>();
 builder.Services.AddHostedService<CardVault.Api.Background.HoldExpiryWorker>();
 builder.Services.AddHostedService<CardVault.Api.Background.NotificationDispatcherWorker>();
-builder.Services.AddScoped<CardVault.Api.Services.Notifications.INotificationDispatcher,
-    CardVault.Api.Services.Notifications.NotificationDispatcher>();
+builder.Services.AddScoped<CardVault.Infrastructure.Notifications.INotificationDispatcher,
+    CardVault.Infrastructure.Notifications.NotificationDispatcher>();
 builder.Services.AddHostedService<CardVault.Api.Background.DelinquencyEvaluationWorker>();
 var app = builder.Build();
 
@@ -459,15 +468,15 @@ using (var scope = app.Services.CreateScope())
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             cardDb.AccountingMappings.AddRange(
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.PurchasePosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "210100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.PaymentApplied, ProductCode = "*", DebitAccountCode = "100100", CreditAccountCode = "110100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.FeePosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "410100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.InterestPosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "410200", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.RefundPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.ReversalPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.ChargebackPosted, ProductCode = "*", DebitAccountCode = "510100", CreditAccountCode = "110100", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.ClearingPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110200", EffectiveDate = today },
-                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Api.Services.AccountingService.SettlementBatchPosted, ProductCode = "*", DebitAccountCode = "110200", CreditAccountCode = "210100", EffectiveDate = today }
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.PurchasePosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "210100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.PaymentApplied, ProductCode = "*", DebitAccountCode = "100100", CreditAccountCode = "110100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.FeePosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "410100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.InterestPosted, ProductCode = "*", DebitAccountCode = "110100", CreditAccountCode = "410200", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.RefundPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.ReversalPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.ChargebackPosted, ProductCode = "*", DebitAccountCode = "510100", CreditAccountCode = "110100", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.ClearingPosted, ProductCode = "*", DebitAccountCode = "210100", CreditAccountCode = "110200", EffectiveDate = today },
+                new CardVault.Infrastructure.Persistence.Accounting.AccountingMappingEntity { Id = Guid.NewGuid(), EventType = CardVault.Application.Services.AccountingService.SettlementBatchPosted, ProductCode = "*", DebitAccountCode = "110200", CreditAccountCode = "210100", EffectiveDate = today }
             );
             await cardDb.SaveChangesAsync();
         }
@@ -480,7 +489,7 @@ using (var scope = app.Services.CreateScope())
                 Id = Guid.NewGuid(),
                 ClientId = "ob_demo_client",
                 Name = "Demo Open Banking Client",
-                SecretHash = CardVault.Api.Services.OpenBankingService.HashSecret(secret),
+                SecretHash = CardVault.Application.Services.OpenBankingService.HashSecret(secret),
                 AllowedScopes = "ob:balances ob:transactions",
                 Enabled = true,
                 AllowAllAccounts = true,
@@ -573,16 +582,4 @@ app.MapControllers();
 app.Run();
 // Expose Program class for WebApplicationFactory in integration tests
 public partial class Program { }
-public sealed record CreateCustomerRequest(string FullName, string DocumentId, string Email, string Phone, string DocumentType, string Gender, string BillingAddress, string StatementAddress, string ResidenceCity, string StatementCity, string CardDeliveryCity);
-public sealed record CreateAccountRequest(Guid CustomerId, AccountType AccountType, string ProductCode, decimal CreditLimit);
-public sealed record IssueCardRequest(Guid AccountId, string Bin, string Pan, string ExpiryYyMm);
-public sealed record BlockCardRequest(string Reason);
-public sealed record CancelCardRequest(string? Reason);
-public sealed record ReplaceCardRequest(string? Reason);
-public sealed record DisputeTransitionRequest(string Action, string? Notes);
-public sealed record MinimumPaymentPolicyUpsert(string Code, bool IsDefault, decimal FloorAmount, decimal PrincipalPercent, decimal? CeilingAmount, bool IncludeInterest, bool IncludeFees);
-public sealed record ApplyPaymentRequest(decimal Amount, DateTimeOffset? PostedOn);
-public sealed record PostLedgerRequest(Guid AccountId, decimal Amount, string Description, DateTimeOffset? PostedOn);
-public sealed record GenerateStatementRequest(Guid AccountId, DateTime CycleStart, DateTime CycleEnd, DateTime StatementDate, DateTime? DueDate);
-public sealed record VelocityRuleUpsertRequest(string ProductCode, int WindowMinutes, int MaxCount, decimal MaxAmount, string? Description);
-public sealed record MccRuleUpsertRequest(string Mcc, bool IsBlocked, decimal? PerTxnLimit, string? Description);
+// Request records moved to CardVault.Application.Contracts (IssuerContracts.cs)

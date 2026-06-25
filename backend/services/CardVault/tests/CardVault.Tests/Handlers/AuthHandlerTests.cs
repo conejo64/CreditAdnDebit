@@ -1,4 +1,5 @@
-using CardVault.Api.Features.Auth.Commands;
+using CardVault.Application.Features.Auth.Commands;
+using CardVault.Application.Ports;
 using CardVault.Api.Security;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Tests.Infrastructure;
@@ -44,6 +45,17 @@ public sealed class AuthHandlerTests : IDisposable
             store, null, null, null, null, null, null, null, null);
     }
 
+    /// <summary>
+    /// Creates a minimal IUserTokenService stub that only supports HashRefreshToken,
+    /// which is needed even on rejection paths of RefreshTokenCommandHandler.
+    /// </summary>
+    private static IUserTokenService CreateHashOnlyTokenService()
+    {
+        var stub = Substitute.For<IUserTokenService>();
+        stub.HashRefreshToken(Arg.Any<string>()).Returns(ci => TokenService.HashRefreshToken(ci.Arg<string>()));
+        return stub;
+    }
+
     public void Dispose()
     {
         _db.Dispose();
@@ -59,7 +71,7 @@ public sealed class AuthHandlerTests : IDisposable
     {
         // TokenService is null because handler exits before using it
         var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
-        var request = new CardVault.Api.Contracts.LoginRequest("unknown@demo.com", "anypass");
+        var request = new CardVault.Application.Contracts.LoginRequest("unknown@demo.com", "anypass");
 
         _userManager.FindByEmailAsync(request.Email).Returns((AppUser?)null);
 
@@ -73,7 +85,7 @@ public sealed class AuthHandlerTests : IDisposable
     public async Task LoginCommand_WrongPassword_ShouldReturn401()
     {
         var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
-        var request = new CardVault.Api.Contracts.LoginRequest("user@demo.com", "wrongpass");
+        var request = new CardVault.Application.Contracts.LoginRequest("user@demo.com", "wrongpass");
 
         var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
         _userManager.FindByEmailAsync(request.Email).Returns(user);
@@ -89,7 +101,7 @@ public sealed class AuthHandlerTests : IDisposable
     public async Task LoginCommand_MfaEnabled_ShouldReturn200WithMfaRequired()
     {
         var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
-        var request = new CardVault.Api.Contracts.LoginRequest("mfa@demo.com", "correctpass");
+        var request = new CardVault.Application.Contracts.LoginRequest("mfa@demo.com", "correctpass");
 
         var user = new AppUser { Id = "u2", UserName = "mfa@demo.com", Email = "mfa@demo.com" };
         _userManager.FindByEmailAsync(request.Email).Returns(user);
@@ -102,7 +114,7 @@ public sealed class AuthHandlerTests : IDisposable
         result.Should().BeAssignableTo<IStatusCodeHttpResult>()
               .Which.StatusCode.Should().Be(200);
 
-        var ok = result as Ok<CardVault.Api.Contracts.AuthSessionResponse>;
+        var ok = result as Ok<CardVault.Application.Contracts.AuthSessionResponse>;
         ok.Should().NotBeNull("handler must return Ok<AuthSessionResponse>");
         ok!.Value!.MfaRequired.Should().BeTrue();
         ok.Value.Message.Should().Be("MFA_REQUIRED");
@@ -115,8 +127,8 @@ public sealed class AuthHandlerTests : IDisposable
     [Fact]
     public async Task RefreshToken_TokenNotFound_ShouldReturn401()
     {
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, null!, null!);
-        var request = new CardVault.Api.Contracts.RefreshRequest("nonexistent-token-value");
+        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
+        var request = new CardVault.Application.Contracts.RefreshRequest("nonexistent-token-value");
 
         var result = await handler.Handle(new RefreshTokenCommand(request), CancellationToken.None);
 
@@ -138,9 +150,9 @@ public sealed class AuthHandlerTests : IDisposable
         });
         await _idDb.SaveChangesAsync();
 
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, null!, null!);
+        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
         var result  = await handler.Handle(
-            new RefreshTokenCommand(new CardVault.Api.Contracts.RefreshRequest(raw)),
+            new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(raw)),
             CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>()
@@ -162,9 +174,9 @@ public sealed class AuthHandlerTests : IDisposable
         });
         await _idDb.SaveChangesAsync();
 
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, null!, null!);
+        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
         var result  = await handler.Handle(
-            new RefreshTokenCommand(new CardVault.Api.Contracts.RefreshRequest(raw)),
+            new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(raw)),
             CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>()

@@ -1,5 +1,5 @@
-using CardVault.Api.Features.Delinquency.Commands;
-using CardVault.Api.Features.Delinquency.Queries;
+using CardVault.Application.Features.Delinquency.Commands;
+using CardVault.Application.Features.Delinquency.Queries;
 using CardVault.Infrastructure.Persistence.Collections;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;

@@ -1,20 +1,7 @@
+using CardVault.Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace CardVault.Infrastructure.Persistence.Issuer;
-
-public enum AccountType
-{
-    Debit = 1,
-    Credit = 2
-}
-
-public enum AccountStatus
-{
-    Active = 1,
-    Blocked = 2,
-    Closed = 3,
-    Delinquent = 4
-}
 
 public sealed class CardAccountEntity
 {

@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using CardVault.Api.Contracts;
+using CardVault.Application.Contracts;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
 

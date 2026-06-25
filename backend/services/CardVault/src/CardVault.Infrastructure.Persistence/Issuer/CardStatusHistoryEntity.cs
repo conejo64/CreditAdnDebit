@@ -1,3 +1,4 @@
+using CardVault.Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace CardVault.Infrastructure.Persistence.Issuer;

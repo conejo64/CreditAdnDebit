@@ -1,4 +1,4 @@
-using CardVault.Api.Services.Notifications;
+using CardVault.Infrastructure.Notifications;
 
 namespace CardVault.Api.Background;
 

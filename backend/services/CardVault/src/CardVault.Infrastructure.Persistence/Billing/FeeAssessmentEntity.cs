@@ -1,13 +1,7 @@
+using CardVault.Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace CardVault.Infrastructure.Persistence.Billing;
-
-public enum FeeType
-{
-    Overlimit = 1,
-    Annual = 2,
-    CashAdvance = 3
-}
 
 /// <summary>
 /// Records fee assessments to enforce idempotency and for audit.

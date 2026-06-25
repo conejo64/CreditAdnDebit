@@ -1,5 +1,7 @@
-using CardVault.Api.Features.Disputes.Commands;
-using CardVault.Api.Services;
+using CardVault.Application.Features.Disputes.Commands;
+using CardVault.Application.Contracts;
+using CardVault.Application.Services;
+using CardVault.Domain;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Switch;
 using CardVault.Tests.Infrastructure;
