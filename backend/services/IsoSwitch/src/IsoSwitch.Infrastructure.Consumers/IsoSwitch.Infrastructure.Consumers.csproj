@@ -6,6 +6,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\IsoSwitch.Application\IsoSwitch.Application.csproj" />
+    <ProjectReference Include="..\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
+    <PackageReference Include="Confluent.Kafka" Version="2.6.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
   </ItemGroup>
 </Project>

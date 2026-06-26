@@ -1,6 +1,5 @@
-using IsoSwitch.Api;
-using IsoSwitch.Api.Features.Transactions.Commands.ReversalTransaction;
-using IsoSwitch.Api.Services;
+using IsoSwitch.Application.Config;
+using IsoSwitch.Application.Features.Transactions.Commands.ReversalTransaction;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;

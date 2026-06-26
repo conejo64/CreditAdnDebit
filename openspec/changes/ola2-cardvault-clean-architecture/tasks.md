@@ -252,7 +252,19 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S1: IsoSwitch Domain + Application Ports
+## [x] Task IS-S1: IsoSwitch Domain + Application Ports
+
+**Deviations from original plan (verified against live code):**
+- `IRoutingEngineV2` is NOT in `IsoSwitch.Api` (the task assumed so) — it lives in `Infrastructure.SwitchIso8583/Routing/`. It was **NOT moved** to Application.Ports: its return type `RoutingDecision` embeds EF entities (`BinRangesCache`, `RoutingRulesV2` from `Infrastructure.Persistence`), a data-type dependency a port cannot break (same rationale as CardVault ADR-6 rejecting `ICardVaultDbContext`). Deferred to IS-S2/S3 under the ARCH-DEP-2 compromise. Stays in Infrastructure for now.
+- `IsoMessage` (POCO, dependency-free) was MOVED `Infrastructure.SwitchIso8583/Iso/` → `IsoSwitch.Domain/` (user-approved). Required because `IIsoAuditService.LogAsync(..., IsoMessage, ...)` references it; with IsoMessage in Domain the port moves to Application.Ports cleanly without Application referencing Infrastructure.
+- `OriginalDataElementsBuilder.BuildFromConfig(IConfiguration, ...)` wrapper REMOVED (it pulled `IConfiguration` into Domain). The pure `Build(...primitives...)` method moves to Domain; the single caller `Field90Service` (Api) now extracts `Iso:AcqInstId`/`Iso:FwdInstId` from config and calls `Build` (ADR-7-style primitive re-parameterization).
+- Moved Domain/Port types resolved via project-level `<Using Include="..." />` global usings (Api, Infrastructure.SwitchIso8583, Tests) instead of per-file using edits — keeps the ISO codec files untouched.
+
+**Build: 0 errors, no circular refs. Tests: 650 green. Domain is dependency-free (0 ProjectReferences).**
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-9, ARCH-10, ARCH-DEP-1, ARCH-DEP-2
 
@@ -290,7 +302,19 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S2: IsoSwitch Application — Handlers + ConnectorRegistry + MediatR Scan
+## [x] Task IS-S2: IsoSwitch Application — Handlers + ConnectorRegistry + MediatR Scan
+
+**Done. Build 0 errors (acyclic), 650 tests green. Delegated to a guarded subagent after the orchestrator pre-decided the architecture; diff independently verified.**
+
+**Deviations from original plan (deliberate, verified):**
+- Moved ONLY what the handlers need to compile in Application: the 10 command/handler files, `ConnectorRegistry` (extracted from `Program.cs`), `Field90Service`, and `IsoConnectorConfig` (holds `IsoConfigRoot`). The pure-DTO files `IsoToolsDtos.cs` / `RoutingV24Dtos.cs` and the inline `Program.cs` records (SimPurchaseRequest, AuthorizeRequest, SwitchAuthApprovedV1, etc.) were NOT moved — verified the handlers reference none of them; they are host/demo concerns and stay in Api.
+- Accepted compromise (ARCH-DEP-2, CardVault ADR-6 precedent): `IsoSwitch.Application` now references `Infrastructure.Persistence` + `Infrastructure.SwitchIso8583` directly (handlers use `IsoSwitchDbContext`, `IRoutingEngineV2`, `IMacService`, `IAcquirerConnector` concretely). No speculative ports invented.
+- Removed the now-dead `→ Application` back-references from `Infrastructure.Persistence.csproj` and `Infrastructure.SwitchIso8583.csproj` (unused in source; required to keep the new Application→Infra direction acyclic — matches ADR-6's "remove dead Persistence→Application ref").
+- Stale `using IsoSwitch.Api.Routing/Services` removed from moved handlers; moved Domain/Port types resolved via project-level global usings.
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-11, ARCH-DEP-2, ARCH-PRES-4
 
@@ -335,7 +359,20 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S3: IsoSwitch Infrastructure Extraction
+## [x] Task IS-S3: IsoSwitch Infrastructure Extraction
+
+**Done. Build 0 errors (acyclic), 650 tests green. New leaf project created.**
+
+**Deviations from original plan (the written plan was infeasible — would create a cycle):**
+- The plan said move the concrete `IIsoAuditService`/`ISwitchEventPublisher` impls into `Infrastructure.Persistence` which "references Application". IMPOSSIBLE after IS-S2 made `Application → Infrastructure.Persistence` (would be a cycle). Resolution: created a NEW leaf project `IsoSwitch.Infrastructure.Messaging` (refs Application + Domain + Persistence + BuildingBlocks + Kafka; Application does NOT ref it → acyclic), mirroring CardVault's Infrastructure.Messaging. Moved there: `SwitchEventPublisher`, `IsoAuditService`, `BinaryIsoAuditService`.
+- `ConfigSyncConsumer` (was inline in Program.cs, not a separate file as the plan assumed) → extracted to `Infrastructure.Consumers`. `DbMigrateWorker` (also inline in Program.cs) → `Infrastructure.Persistence` (only needs DbContext, no Application dep → no cycle).
+- `CatalogAuditPersistence` (no port, only uses IsoSwitchDbContext) → `Infrastructure.Persistence` directly.
+- Consumers of moved types resolved via project-level global usings in Api (`IsoSwitch.Infrastructure.Messaging`, `IsoSwitch.Infrastructure.Consumers`) plus targeted per-file usings for `CatalogAuditPersistence` (Persistence ns); Program.cs FQNs `IsoSwitch.Api.CatalogAuditPersistence` → short name.
+- Final IsoSwitch graph (acyclic, inward): Domain ← Application(+Persistence,+SwitchIso8583) ← {Messaging, Consumers} ← Api. Infra leaf projects ref Application one-way.
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-12, ARCH-DEP-3
 
@@ -370,7 +407,26 @@ Services (28 business service files — excluding `AuthDecisionPublisher` which 
 
 ---
 
-## Task IS-S4: IsoSwitch Api — Thin Composition Root Verification
+## [x] Task IS-S4: IsoSwitch Api — Thin Composition Root Verification
+
+**Done. Build 0 errors, 650 tests green. Verification caught 2 adapters IS-S3 missed; moved them.**
+
+**Findings + actions (verification was NOT a no-op):**
+- `Services/AuditService.cs` (DB audit writer, no port, uses IsoSwitchDbContext) → moved to `Infrastructure.Persistence` (no cycle, like CatalogAuditPersistence).
+- `Consumers/PciAuditConsumer.cs` (KafkaConsumerWorker) → moved to `Infrastructure.Consumers` (like ConfigSyncConsumer); now references AuditService from Persistence.
+- Removed empty ghost dirs left by IS-S2/S3 moves: `Features/`, `Consumers/`, `Services/`.
+- Cleaned stale `using IsoSwitch.Api.Services/Consumers` from Program.cs, AuditEndpoints, TransactionEndpoints; Api consumers of the moved types resolve via global usings (Messaging/Consumers) + existing Persistence usings.
+
+**Accepted exceptions (stay in Api as host/dev concerns — CV-S6 precedent for workers):**
+- `Background/SwitchResponseConsumer.cs` — dev/diagnostic Kafka consumer feeding a static `LastResponses` queue, coupled to Api-resident `Iso8583`/`Tcp` host stack; cannot move without an Infra→Api cycle.
+- `ReversalWorker.cs` — host-lifecycle background worker (reversal retry loop via DI scope).
+- `IsoSimulatorServer.cs`, `IsoToolsDtos.cs`, `RoutingV24Dtos.cs`, `IdempotencyExtensions.cs`, `Observability.cs` — dev/demo/host concerns.
+
+**Final Api source: Program.cs, Endpoints/**, Tcp/** (dev codec + TcpIso8583Server), Iso8583/** (codec), Security/**, Routing/BinRoutingStore.cs, Persistence/JsonFileStore.cs, Background/** (2 host workers), Observability.cs, + host/demo DTOs. NO handlers, NO ConnectorRegistry, NO business services, NO port impls. `public partial class Program {}` present; both InitializeFromDbAsync startup calls preserved in order.**
+
+---
+
+### Original task spec (for reference)
 
 **Spec requirements**: ARCH-13, ARCH-PRES-1, ARCH-PRES-2, ARCH-PRES-3
 

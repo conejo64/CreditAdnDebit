@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using IsoSwitch.Api;
+using IsoSwitch.Infrastructure.Persistence;
 
 namespace IsoSwitch.Api.Routing;
 

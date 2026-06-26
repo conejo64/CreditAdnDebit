@@ -6,12 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\IsoSwitch.Domain\IsoSwitch.Domain.csproj" />
+    <ProjectReference Include="..\IsoSwitch.Application\IsoSwitch.Application.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
-    <ProjectReference Include="..\IsoSwitch.Infrastructure.SwitchIso8583\IsoSwitch.Infrastructure.SwitchIso8583.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="MediatR" Version="12.2.0" />
+    <PackageReference Include="Confluent.Kafka" Version="2.6.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />

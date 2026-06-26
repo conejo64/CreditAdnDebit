@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using IsoSwitch.Api;
 using Microsoft.EntityFrameworkCore;
+using IsoSwitch.Infrastructure.Persistence;
 
 namespace IsoSwitch.Api.Tcp;
 

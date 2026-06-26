@@ -1,3 +1,4 @@
+using IsoSwitch.Application.Config;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.SwitchIso8583.Connectors;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;

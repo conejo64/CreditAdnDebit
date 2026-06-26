@@ -1,6 +1,10 @@
 using BuildingBlocks.Kafka;
 using IsoSwitch.Api;
+using IsoSwitch.Application;
+using IsoSwitch.Application.Config;
 using IsoSwitch.Infrastructure.Persistence;
+using IsoSwitch.Infrastructure.Messaging;
+using IsoSwitch.Infrastructure.Consumers;
 using IsoSwitch.Api.Iso8583;
 using IsoSwitch.Api.Routing;
 using IsoSwitch.Api.Security;
@@ -11,13 +15,11 @@ using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Connectors;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using IsoSwitch.Infrastructure.SwitchIso8583.Net;
-using IsoSwitch.Api.Consumers;
 using IsoSwitch.Infrastructure.SwitchIso8583.Routing;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using IsoSwitch.Api.Services;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Metrics;
@@ -89,7 +91,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(IsoSwitchAuthorizationPolicies.ViewAudit, p => p.RequireAssertion(ctx =>
         RoleOrPerm(ctx.User, IsoSwitchAuthorizationPolicies.AuditViewPermission, "Admin", "Auditor")));
 });
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<IsoSwitch.Application.ApplicationMarker>());
 // Postgres (switch db)
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
 {
@@ -99,7 +101,7 @@ builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
 builder.Services.AddSingleton<ISwitchEventPublisher, SwitchEventPublisher>();
 builder.Services.AddScoped<IIsoAuditService, IsoAuditService>();
 builder.Services.AddScoped<BinaryIsoAuditService>();
-builder.Services.AddScoped<IsoSwitch.Api.CatalogAuditPersistence>();
+builder.Services.AddScoped<CatalogAuditPersistence>();
 builder.Services.AddSingleton<Field90Service>();
 builder.Services.AddHostedService<ReversalWorker>();
 // ISO simulator server (dev)
@@ -186,7 +188,7 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    var audit = scope.ServiceProvider.GetRequiredService<IsoSwitch.Api.CatalogAuditPersistence>();
+    var audit = scope.ServiceProvider.GetRequiredService<CatalogAuditPersistence>();
     await BinRoutingStore.InitializeFromDbAsync(audit, CancellationToken.None);
     await IsoSwitch.Api.Tcp.PanMapStore.InitializeFromDbAsync(audit, CancellationToken.None);
 }
@@ -221,104 +223,6 @@ public sealed record PanMapV51Request(string Pan, string AccountId);
 public sealed record AuthorizeRequest(string TraceId, int Bin, decimal Amount, string Currency, string MerchantId, string TerminalId, string Stan, string? PinBlock, string? EmvTlv, // v16: optional ISO fields (demo). Avoid real PAN in production; prefer tokenization.
 string? Pan, string? ExpiryYyMm, string? PosEntryMode, string? PosConditionCode, string? Track2, string? AdditionalAmounts54, string? Private60, string? Private61, string? Private62);
 public sealed record ReversalRequest(string OriginalTraceId, string MerchantId, string TerminalId, string Currency, string? PinBlock, string? EmvTlv);
-sealed class DbMigrateWorker : BackgroundService
-{
-    private readonly IServiceProvider _sp;
-    private readonly ILogger<DbMigrateWorker> _logger;
-    public DbMigrateWorker(IServiceProvider sp, ILogger<DbMigrateWorker> logger)
-    {
-        _sp = sp;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var scope = _sp.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
-        _logger.LogInformation("Applying migrations for IsoSwitchDbContext...");
-        await db.Database.MigrateAsync(stoppingToken);
-        _logger.LogInformation("Migrations applied.");
-    }
-}
-
-public sealed class ConnectorRegistry
-{
-    private readonly Dictionary<string, IAcquirerConnector> _map;
-    public ConnectorRegistry(IEnumerable<IAcquirerConnector> connectors)
-    {
-        _map = connectors.ToDictionary(c => c.ConnectorId, StringComparer.OrdinalIgnoreCase);
-    }
-
-    public IAcquirerConnector Get(string connectorId)
-    {
-        if (_map.TryGetValue(connectorId, out var c))
-            return c;
-        if (_map.TryGetValue("SIMULATOR", out var sim))
-            return sim;
-        throw new InvalidOperationException($"No connector registered for '{connectorId}'");
-    }
-}
-
-sealed class ConfigSyncConsumer : Microsoft.Extensions.Hosting.BackgroundService
-{
-    private readonly Microsoft.Extensions.Logging.ILogger<ConfigSyncConsumer> _logger;
-    private readonly IServiceProvider _sp;
-    private readonly string _bootstrapServers;
-    private readonly string _groupId;
-    private readonly string _clientId;
-
-    public ConfigSyncConsumer(string bootstrapServers, string groupId, string clientId, IServiceProvider sp, Microsoft.Extensions.Logging.ILogger<ConfigSyncConsumer> logger)
-    {
-        _bootstrapServers = bootstrapServers;
-        _groupId = groupId;
-        _clientId = clientId;
-        _sp = sp;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        await Task.Yield();
-        var config = new ConsumerConfig { BootstrapServers = _bootstrapServers, GroupId = _groupId, ClientId = _clientId, AutoOffsetReset = AutoOffsetReset.Earliest };
-        using var consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe(new[] { "cv.demo", "cv.routing.updated", "cv.card.status.changed", "cv.merchant.config.updated", "cv.catalog.country.upserted", "cv.catalog.binrange.upserted", "cv.catalog.cardproduct.upserted" });
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                var cr = consumer.Consume(stoppingToken);
-                if (cr is null) continue;
-                var topic = cr.Topic;
-                var key = cr.Message.Key;
-                var value = cr.Message.Value;
-                _logger.LogInformation("IsoSwitch received topic={Topic} key={Key}", topic, key);
-                if (topic == "cv.routing.updated")
-                {
-                    using var scope = _sp.CreateScope();
-                    var db = scope.ServiceProvider.GetRequiredService<IsoSwitch.Infrastructure.Persistence.IsoSwitchDbContext>();
-                    var doc = JsonDocument.Parse(value);
-                    var root = doc.RootElement;
-                    var id = root.TryGetProperty("ruleId", out var rid) ? rid.GetGuid() : Guid.Empty;
-                    if (id == Guid.Empty) continue;
-                    var entity = await db.RoutingRulesCache.FindAsync(new object[] { id }, stoppingToken);
-                    if (entity is null)
-                    {
-                        entity = new IsoSwitch.Infrastructure.Persistence.Routing.RoutingRuleCacheEntity { Id = id };
-                        db.RoutingRulesCache.Add(entity);
-                    }
-                    entity.Priority = root.GetProperty("priority").GetInt32();
-                    entity.BinStart = root.GetProperty("binStart").GetInt32();
-                    entity.BinEnd = root.GetProperty("binEnd").GetInt32();
-                    entity.ConnectorId = root.GetProperty("connectorId").GetString() ?? "SIMULATOR";
-                    entity.Enabled = root.GetProperty("enabled").GetBoolean();
-                    entity.UpdatedOn = root.GetProperty("updatedOn").GetDateTimeOffset();
-                    await db.SaveChangesAsync(stoppingToken);
-                }
-            } catch (OperationCanceledException) {} catch (Exception ex) { _logger.LogError(ex, "ConfigSyncConsumer error"); }
-        }
-    }
-}
-
 public sealed record SwitchAuthApprovedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);
 public sealed record SwitchAuthReversedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);
 public sealed record SwitchClearingPostedV1(Guid AccountId, decimal Amount, string Network, string Mti, string Stan, string Rrn, string? OriginalDataElements90, DateTimeOffset PostedOn);

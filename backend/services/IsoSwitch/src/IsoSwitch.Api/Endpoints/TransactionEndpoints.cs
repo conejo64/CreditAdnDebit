@@ -6,9 +6,8 @@ using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using IsoSwitch.Api.Security;
-using IsoSwitch.Api.Services;
 using IsoSwitch.Infrastructure.SwitchIso8583.Routing;
-using IsoSwitch.Api.Features.Transactions.Commands.NetworkManagement;
+using IsoSwitch.Application.Features.Transactions.Commands.NetworkManagement;
 
 namespace IsoSwitch.Api.Endpoints;
 
@@ -21,7 +20,7 @@ public static class TransactionEndpoints
 
         operations.MapPost("/authorize", async (HttpRequest http, AuthorizeRequest req, ISender sender, CancellationToken ct) =>
         {
-            var command = new IsoSwitch.Api.Features.Transactions.Commands.AuthorizeTransaction.AuthorizeTransactionCommand(
+            var command = new IsoSwitch.Application.Features.Transactions.Commands.AuthorizeTransaction.AuthorizeTransactionCommand(
                 TraceId: req.TraceId,
                 Bin: req.Bin,
                 Amount: req.Amount,
@@ -56,7 +55,7 @@ public static class TransactionEndpoints
 
         operations.MapPost("/reversal", async (ReversalRequest req, ISender sender, CancellationToken ct) =>
         {
-            var command = new IsoSwitch.Api.Features.Transactions.Commands.ReversalTransaction.ReversalTransactionCommand(
+            var command = new IsoSwitch.Application.Features.Transactions.Commands.ReversalTransaction.ReversalTransactionCommand(
                 OriginalTraceId: req.OriginalTraceId,
                 MerchantId: req.MerchantId,
                 TerminalId: req.TerminalId,
@@ -83,7 +82,7 @@ public static class TransactionEndpoints
 
         operations.MapPost("/capture", async (HttpRequest http, AuthorizeRequest req, ISender sender, CancellationToken ct) =>
         {
-            var command = new IsoSwitch.Api.Features.Transactions.Commands.CaptureTransaction.CaptureTransactionCommand(
+            var command = new IsoSwitch.Application.Features.Transactions.Commands.CaptureTransaction.CaptureTransactionCommand(
                 TraceId: req.TraceId,
                 Bin: req.Bin,
                 Amount: req.Amount,
@@ -118,7 +117,7 @@ public static class TransactionEndpoints
 
         operations.MapPost("/reversal-advice", async (HttpRequest http, string traceId, string originalTraceId, ISender sender, CancellationToken ct) =>
         {
-            var command = new IsoSwitch.Api.Features.Transactions.Commands.ReversalAdvice.ReversalAdviceCommand(
+            var command = new IsoSwitch.Application.Features.Transactions.Commands.ReversalAdvice.ReversalAdviceCommand(
                 TraceId: traceId,
                 OriginalTraceId: originalTraceId,
                 IdempotencyKey: http.GetIdempotencyKey()

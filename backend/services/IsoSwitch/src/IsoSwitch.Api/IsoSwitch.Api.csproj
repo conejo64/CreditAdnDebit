@@ -7,10 +7,12 @@
   <ItemGroup>
     <PackageReference Include="Confluent.Kafka" Version="2.6.0" />
     <PackageReference Include="MediatR" Version="12.2.0" />
+    <ProjectReference Include="..\IsoSwitch.Domain\IsoSwitch.Domain.csproj" />
     <ProjectReference Include="..\IsoSwitch.Application\IsoSwitch.Application.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Persistence\IsoSwitch.Infrastructure.Persistence.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.SwitchIso8583\IsoSwitch.Infrastructure.SwitchIso8583.csproj" />
     <ProjectReference Include="..\IsoSwitch.Infrastructure.Consumers\IsoSwitch.Infrastructure.Consumers.csproj" />
+    <ProjectReference Include="..\IsoSwitch.Infrastructure.Messaging\IsoSwitch.Infrastructure.Messaging.csproj" />
     <ProjectReference Include="..\..\..\..\shared\BuildingBlocks\BuildingBlocks.csproj" />
       <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.9.0" />
       <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
@@ -19,6 +21,12 @@
       <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.9.0" />
       <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.9.0" />
       <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.10.0-beta.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="IsoSwitch.Domain" />
+    <Using Include="IsoSwitch.Application.Ports" />
+    <Using Include="IsoSwitch.Infrastructure.Messaging" />
+    <Using Include="IsoSwitch.Infrastructure.Consumers" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />

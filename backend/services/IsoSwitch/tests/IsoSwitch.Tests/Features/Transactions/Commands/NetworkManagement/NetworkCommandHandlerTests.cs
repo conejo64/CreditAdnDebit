@@ -1,5 +1,5 @@
-using IsoSwitch.Api;
-using IsoSwitch.Api.Features.Transactions.Commands.NetworkManagement;
+using IsoSwitch.Application.Config;
+using IsoSwitch.Application.Features.Transactions.Commands.NetworkManagement;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
 using IsoSwitch.Infrastructure.SwitchIso8583.Connectors;
 using FluentAssertions;

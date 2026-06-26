@@ -53,6 +53,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IsoAudit.Tests", "services\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardVault.Infrastructure.Notifications", "services\CardVault\src\CardVault.Infrastructure.Notifications\CardVault.Infrastructure.Notifications.csproj", "{71FBA93D-AF40-4602-928F-A6D846071047}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F2A386D2-581B-3D85-EFE5-223928603E58}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IsoSwitch.Infrastructure.Messaging", "services\IsoSwitch\src\IsoSwitch.Infrastructure.Messaging\IsoSwitch.Infrastructure.Messaging.csproj", "{B4904412-9721-4CD2-8A9E-27538B23F7D1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -279,6 +283,18 @@ Global
 		{71FBA93D-AF40-4602-928F-A6D846071047}.Release|x64.Build.0 = Release|Any CPU
 		{71FBA93D-AF40-4602-928F-A6D846071047}.Release|x86.ActiveCfg = Release|Any CPU
 		{71FBA93D-AF40-4602-928F-A6D846071047}.Release|x86.Build.0 = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|x64.Build.0 = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Debug|x86.Build.0 = Debug|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|x64.ActiveCfg = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|x64.Build.0 = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|x86.ActiveCfg = Release|Any CPU
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -295,5 +311,7 @@ Global
 		{56E45F93-279A-BDE5-D209-777973C67861} = {FAA238C8-42A2-7140-9596-BDAD9400F945}
 		{32501FA5-CF6D-473A-A081-91B64AFA6A80} = {56E45F93-279A-BDE5-D209-777973C67861}
 		{71FBA93D-AF40-4602-928F-A6D846071047} = {34FB391D-A2F4-CE23-6184-462100A61821}
+		{F2A386D2-581B-3D85-EFE5-223928603E58} = {592C3748-9777-3D80-F02C-0856DED8D1FC}
+		{B4904412-9721-4CD2-8A9E-27538B23F7D1} = {F2A386D2-581B-3D85-EFE5-223928603E58}
 	EndGlobalSection
 EndGlobal
