@@ -1,0 +1,25 @@
+title = "ZitronSystem gitleaks config"
+
+# Extend the default gitleaks ruleset (secret patterns, entropy rules, etc.)
+# instead of redefining detection rules from scratch.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret placeholders that must not false-positive"
+
+# Only these committed, documented example/template files are exempt from
+# path-level scanning. Real config files (appsettings.Development.json for
+# CardVault/IsoSwitch) are intentionally NOT listed here: the currently
+# leaked Vault:Keys (k1/k2), connection-string passwords, and seed
+# credentials in those files MUST stay detectable until SEC-01 purges them.
+paths = [
+  '''backend/\.env\.example''',
+  '''backend/deploy/\.env\.example''',
+]
+
+# Placeholder token used by .env.example-style files. Safe to allowlist by
+# regex because it never appears as a real secret value.
+regexes = [
+  '''__REPLACE_ME__''',
+]
