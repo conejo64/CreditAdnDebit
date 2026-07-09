@@ -32,8 +32,8 @@ description = "Known non-secret placeholders that must not false-positive"
 # leaked Vault:Keys (k1/k2), connection-string passwords, and seed
 # credentials in those files MUST stay detectable until SEC-01 purges them.
 paths = [
-  '''backend/\.env\.example''',
   '''backend/deploy/\.env\.example''',
+  '''docs/env\.example''',
 ]
 
 # Placeholder token used by .env.example-style files. Safe to allowlist by
