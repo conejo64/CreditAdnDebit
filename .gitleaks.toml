@@ -1,0 +1,43 @@
+title = "ZitronSystem gitleaks config"
+
+# Extend the default gitleaks ruleset (secret patterns, entropy rules, etc.)
+# instead of redefining detection rules from scratch.
+[extend]
+useDefault = true
+
+# The default gitleaks ruleset does not reliably flag two secret shapes this
+# codebase actually leaked: (1) inline "Password=" values inside ADO.NET/EF
+# connection strings, and (2) bare Base64 AES-256 key material stored under
+# vault key-id fields (e.g. Vault:Keys:k1/k2). Custom rules close that gap so
+# CICD-13's "known leaked secret classes stay detectable" requirement holds
+# even where the built-in ruleset alone would miss it.
+[[rules]]
+id = "inline-connection-string-password"
+description = "Inline password inside an ADO.NET/EF connection string"
+regex = '''(?i)(Password|Pwd)\s*=\s*[^;"'\s]{4,}'''
+tags = ["connection-string", "password"]
+
+[[rules]]
+id = "vault-base64-key-material"
+description = "Base64-encoded AES-256-length key material under a Vault key id"
+regex = '''"k[0-9]+"\s*:\s*"[A-Za-z0-9+/]{40,44}=?=?"'''
+tags = ["vault", "key-material"]
+
+[allowlist]
+description = "Known non-secret placeholders that must not false-positive"
+
+# Only these committed, documented example/template files are exempt from
+# path-level scanning. Real config files (appsettings.Development.json for
+# CardVault/IsoSwitch) are intentionally NOT listed here: the currently
+# leaked Vault:Keys (k1/k2), connection-string passwords, and seed
+# credentials in those files MUST stay detectable until SEC-01 purges them.
+paths = [
+  '''backend/deploy/\.env\.example''',
+  '''docs/env\.example''',
+]
+
+# Placeholder token used by .env.example-style files. Safe to allowlist by
+# regex because it never appears as a real secret value.
+regexes = [
+  '''__REPLACE_ME__''',
+]
