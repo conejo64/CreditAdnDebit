@@ -30,12 +30,34 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
     // Valid non-placeholder test key (32+ chars, passes JwtOptionsValidator SEC-2).
     private const string SigningKey = "TestSigningKeyForCardVaultIntegrationTests";
 
+    // SEC-01: appsettings.Development.json no longer carries a live Vault:Keys value
+    // (the previous k1/k2 values were purged from committed config). VaultCrypto still
+    // requires at least one 32-byte AES-256-GCM key to construct, so tests supply their
+    // own test-only keys here — analogous to the Jwt:SigningKey override above. Key ids
+    // "k1"/"k2" are kept (test-only random values, NOT the previously leaked material)
+    // because several existing integration tests target `?keyId=k1` on the HTTP rotate
+    // endpoint and construct VaultOptions with "k1"/"k2" directly.
+    private const string TestVaultKeyK1B64 = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    private const string TestVaultKeyK2B64 = "IB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgE=";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
 
         // Provide a valid signing key so startup secret validation (SEC-2) passes.
         builder.UseSetting("Jwt:SigningKey", SigningKey);
+
+        // Provide test-only vault keys so VaultCrypto can construct (SEC-01: no live
+        // key ships in committed config anymore).
+        builder.UseSetting("Vault:ActiveKeyId", "k2");
+        builder.UseSetting("Vault:Keys:k1", TestVaultKeyK1B64);
+        builder.UseSetting("Vault:Keys:k2", TestVaultKeyK2B64);
+
+        // Provide test-only connection strings so RequiredConnectionStringsOptionsValidator
+        // (SEC-9 fail-fast) passes by default. The DbContexts themselves are replaced with
+        // InMemory providers below, so these values are never actually connected to.
+        builder.UseSetting("ConnectionStrings:Postgres", "Host=localhost;Database=test;Username=test;Password=test");
+        builder.UseSetting("ConnectionStrings:SqlServerIdentity", "Server=localhost;Database=test;Trusted_Connection=True;TrustServerCertificate=true");
 
         builder.ConfigureTestServices(services =>
         {
