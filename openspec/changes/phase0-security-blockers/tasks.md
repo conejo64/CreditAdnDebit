@@ -220,18 +220,32 @@ PR 2 merged (stacks on the rotated-config baseline). **Independent of:** SEC-03/
 
 ### EF migration (mandatory — schema trap)
 
-- [ ] 3.1 Add `PinHashAlgorithm` (`string?`, `MaxLength(32)`), `PinHashParams` (`string?`, `MaxLength(128)`,
+- [x] 3.1 Add `PinHashAlgorithm` (`string?`, `MaxLength(32)`), `PinHashParams` (`string?`, `MaxLength(128)`,
       compact JSON e.g. `{"m":19456,"t":2,"p":1}`), `PinSalt` (`string?`, `MaxLength(64)`, Base64 16-byte
       salt) to `CardEntity` (and the domain `Card` if mirrored). Keep existing `PinHash` (`string?`,
       `MaxLength(128)`).
-- [ ] 3.2 Run `dotnet ef migrations add AddPinKdfColumns` against `CardVaultDbContext` and commit the
+      Added to `CardEntity`; domain `Card` has no mirrored PIN fields (grep-confirmed), so nothing to change
+      there. EF configuration added in `CardVaultDbContext.OnModelCreating` for `CardEntity`.
+- [x] 3.2 Run `dotnet ef migrations add AddPinKdfColumns` against `CardVaultDbContext` and commit the
       generated migration. This is REQUIRED: `Program.cs` calls `Database.EnsureCreated()` in Development and
       `Database.Migrate()` in Production — `EnsureCreated()` does not run migrations, so a real migration is
       the only path that keeps a pre-existing Development DB and any Production DB in sync with the new nullable
       columns. Additive, nullable, no backfill, no downtime.
-- [ ] 3.3 **[test-first]** Add a migration-applies-cleanly test (or a documented manual check): apply
+      Generated `20260712143908_AddPinKdfColumns` (+ Designer + updated ModelSnapshot). `Up()` only adds 3
+      nullable `character varying` columns to `Cards`; `Down()` only drops those 3 columns. No data-loss ops.
+- [x] 3.3 **[test-first]** Add a migration-applies-cleanly test (or a documented manual check): apply
       `AddPinKdfColumns` against a DB seeded with pre-migration schema and assert the three new columns exist
       as nullable with no data loss on existing `PinHash` values.
+      Implemented as `AddPinKdfColumnsMigrationTests` (3 tests): (1) `IMigrator.GenerateScript` against the
+      real Npgsql provider proves the generated SQL adds the 3 columns to `Cards` and contains no
+      `DROP COLUMN`/`ALTER COLUMN "PinHash"`; (2) reflects over the migration's `Up()` `MigrationBuilder`
+      operations and asserts exactly 3 `AddColumnOperation`s, all nullable, on `Cards`, and no
+      `DropColumnOperation`/`AlterColumnOperation`/`RenameColumnOperation` present; (3) `Down()` only contains
+      the 3 matching `DropColumnOperation`s. InMemory provider (used elsewhere in this suite) does not execute
+      real migrations, so this test deliberately exercises the actual Npgsql migration pipeline instead of
+      InMemory, which would have silently masked a broken migration. No live Postgres instance was available
+      in this environment, so a real `Migrate()`-against-a-live-DB run was not performed; the script-generation
+      + operation-shape assertions are the strongest verification available without one.
 
 ### Argon2id implementation
 

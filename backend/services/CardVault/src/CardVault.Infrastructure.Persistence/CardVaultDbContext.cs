@@ -188,6 +188,10 @@ public sealed class CardVaultDbContext : DbContext
             b.Property(x => x.MaskedPan).HasMaxLength(19).IsRequired();
             b.Property(x => x.ExpiryYyMm).HasMaxLength(6).IsRequired();
             b.Property(x => x.Last4).HasMaxLength(8).IsRequired();
+            // SEC-02 - Salted, cost-parameterized PIN hashing (Argon2id interim)
+            b.Property(x => x.PinHashAlgorithm).HasMaxLength(32);
+            b.Property(x => x.PinHashParams).HasMaxLength(128);
+            b.Property(x => x.PinSalt).HasMaxLength(64);
             b.HasOne(x => x.Account).WithMany(x => x.Cards).HasForeignKey(x => x.AccountId);
             b.HasIndex(x => x.PanToken).IsUnique();
             b.HasIndex(x => x.Last4);
