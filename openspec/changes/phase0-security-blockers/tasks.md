@@ -249,46 +249,78 @@ PR 2 merged (stacks on the rotated-config baseline). **Independent of:** SEC-03/
 
 ### Argon2id implementation
 
-- [ ] 3.4 Add `Konscious.Security.Cryptography.Argon2` package reference to
+- [x] 3.4 Add `Konscious.Security.Cryptography.Argon2` package reference to
       `CardVault.Application` (or the project that hosts `PinService.cs`).
-- [ ] 3.5 **[test-first]** Add a test: setting a PIN via `SetPinAsync` stores `PinHashAlgorithm == "argon2id"`,
+      Added `Konscious.Security.Cryptography.Argon2` 1.3.1 (+ transitive `Konscious.Security.Cryptography.Blake2`
+      1.1.1) to `CardVault.Application.csproj`.
+- [x] 3.5 **[test-first]** Add a test: setting a PIN via `SetPinAsync` stores `PinHashAlgorithm == "argon2id"`,
       a non-null `PinSalt`, non-null `PinHashParams`, and `PinHash` that is NOT equal to unsalted
       `SHA256(pin)` — satisfying scenario "New PIN is stored with a per-PIN salt and cost parameters". Confirm
       it fails against current `HashPin` (SHA-256), then implement.
-- [ ] 3.6 Implement `HashPinArgon2id(pin, salt, params) → hash` using `Konscious.Security.Cryptography.Argon2id`
+      Implemented as `PinServiceTests.SetPinAsync_StoresArgon2idAlgorithmSaltAndParams_NotUnsaltedSha256`.
+      Confirmed RED against the pre-3.6 SHA-256-only `PinService` (all 3 new PinServiceTests failed), then
+      GREEN after 3.6.
+- [x] 3.6 Implement `HashPinArgon2id(pin, salt, params) → hash` using `Konscious.Security.Cryptography.Argon2id`
       with default cost params `memory = 19456 KiB`, `iterations = 2`, `parallelism = 1`, `salt = 16 bytes`
       (`RandomNumberGenerator`), `hash length = 32 bytes`. Update `SetPinAsync` to always write via this path,
       persisting algorithm id + params JSON + salt.
-- [ ] 3.7 **[test-first]** Add a test: two cards assigned the identical PIN value produce two different stored
+      Implemented `HashPinArgon2id` + `WriteArgon2idHash` in `PinService.cs` with the exact cost params;
+      `SetPinAsync` always calls `WriteArgon2idHash`.
+- [x] 3.7 **[test-first]** Add a test: two cards assigned the identical PIN value produce two different stored
       `PinHash` values (distinct random salts) — satisfying scenario "Identical PINs on different cards do not
       produce identical hashes".
-- [ ] 3.8 **[test-first]** Add a test: correct PIN verifies via the Argon2id path, incorrect PIN is rejected —
+      Implemented as `PinServiceTests.SetPinAsync_TwoCardsSamePin_ProduceDifferentHashesAndDifferentSalts`.
+- [x] 3.8 **[test-first]** Add a test: correct PIN verifies via the Argon2id path, incorrect PIN is rejected —
       satisfying scenario "Correct PIN verifies, incorrect PIN is rejected" for the new-record path.
-- [ ] 3.9 Add `VerifyLegacySha256(pin, storedHash)` helper preserving the exact current unsalted-SHA-256
+      Implemented as `PinServiceTests.VerifyPinAsync_Argon2idPath_CorrectPinSucceeds_IncorrectPinFails`.
+- [x] 3.9 Add `VerifyLegacySha256(pin, storedHash)` helper preserving the exact current unsalted-SHA-256
       comparison logic (needed only for the upgrade path below — never used to write new hashes).
-- [ ] 3.10 **[test-first]** Add a test: a card whose `PinHashAlgorithm` is null/legacy verifies successfully
+      Implemented in the same pass as 3.6/3.12 since `VerifyPinAsync`'s algorithm branch is one cohesive unit
+      — `VerifyLegacySha256` preserves the exact prior `HashPin`+`==` comparison, called only from the legacy
+      branch of `VerifyPinAsync`.
+- [x] 3.10 **[test-first]** Add a test: a card whose `PinHashAlgorithm` is null/legacy verifies successfully
       against a pre-existing unsalted-SHA-256 `PinHash` via the legacy path (regression guard so the migration
       doesn't break currently-working legacy verification mid-transition).
+      Implemented as `PinTransitionTests.VerifyPinAsync_LegacyNullAlgorithm_VerifiesAgainstUnsaltedSha256`
+      (work unit 3, see below).
 
 ### Verify-then-upgrade transition
 
-- [ ] 3.11 **[test-first]** Add the core transition test: given a card with a legacy unsalted-SHA-256
+- [x] 3.11 **[test-first]** Add the core transition test: given a card with a legacy unsalted-SHA-256
       `PinHash` and `PinHashAlgorithm == null`, a **successful** `VerifyPinAsync` call transparently re-hashes
       the same PIN with Argon2id, overwrites `PinHash`/`PinHashAlgorithm`/`PinHashParams`/`PinSalt` in the same
       `SaveChangesAsync`, and the old unsalted hash is gone (not retained anywhere) — satisfying scenario
       "After transition, no card is verifiable only by unsalted SHA-256".
-- [ ] 3.12 Implement the branch in `VerifyPinAsync`: detect `card.PinHashAlgorithm` (null/`"sha256"` → legacy
+      Implemented as `PinTransitionTests.VerifyPinAsync_SuccessfulLegacyVerify_UpgradesToArgon2idAndDestroysOldHash`.
+      Deviation note: 3.11's test and 3.12's implementation were written in the same pass rather than strict
+      test-then-implement, because `VerifyPinAsync`'s single algorithm-branch method is one cohesive unit
+      (legacy-detect -> verify -> conditional-upgrade) that could not be meaningfully split into a
+      compiling-but-failing intermediate state. The test was run and confirmed passing immediately after the
+      implementation; the transition invariant (old hash destroyed, new Argon2id hash present) is asserted
+      exactly as specified.
+- [x] 3.12 Implement the branch in `VerifyPinAsync`: detect `card.PinHashAlgorithm` (null/`"sha256"` → legacy
       path via `VerifyLegacySha256`; `"argon2id"` → new path); on successful legacy verify, call
       `HashPinArgon2id` and persist the upgrade atomically.
-- [ ] 3.13 **[test-first]** Add a negative test: after the upgrade in 3.11, attempting to verify using the
+      Implemented: `VerifyPinAsync` branches on `card.PinHashAlgorithm == "argon2id"`; any other value
+      (including null and legacy `"sha256"`) routes to `VerifyLegacySha256`. On a successful legacy verify,
+      `WriteArgon2idHash` runs before `SaveChangesAsync`, so the upgrade lands atomically with the retry-counter
+      reset in the same DB round-trip.
+- [x] 3.13 **[test-first]** Add a negative test: after the upgrade in 3.11, attempting to verify using the
       *old* unsalted-SHA-256 comparison against the now-current `PinHash` fails (proves the old hash value is
       truly gone, not just algorithm-tagged differently).
-- [ ] 3.14 **[test-first]** Add a log-scan test/assertion: run a PIN set + verify (both success and failure
+      Implemented as `PinTransitionTests.VerifyPinAsync_AfterUpgrade_OldUnsaltedComparisonNoLongerMatchesCurrentHash`.
+- [x] 3.14 **[test-first]** Add a log-scan test/assertion: run a PIN set + verify (both success and failure
       paths, including an intentionally malformed/exception path) with a test log sink capturing all output,
       and assert no captured log entry contains the plaintext PIN or any Base64/hex encoding of the PIN or its
       salted input — satisfying scenario "PIN material is never logged". Confirm `PinService` code paths
       already avoid logging PIN material (per design, audit events carry only `cardId`); fix any path found to
       leak it.
+      Implemented as `PinServiceLoggingTests` (2 tests): a capturing `ILoggerProvider` wired via
+      `ILoggerFactory` proves no PIN material reaches any `ILogger` call across set + verify-success +
+      verify-failure (`PinService` makes zero logging calls today, so this is a forward-looking regression
+      guard); the persisted `AuditEventEntity.PayloadJson` rows (the actual sink `PinService` writes to on
+      every call) are asserted to never contain the PIN or its Base64/hex encodings; a third assertion covers
+      the `SetPinAsync` card-not-found exception message. Confirmed passing — no leak found, no fix needed.
 
 **Estimated changed lines:** ~200–280 (one EF migration, entity/DTO field additions, `PinService.cs` rewrite,
 ~6–8 new tests). Within budget, no chaining needed.
