@@ -151,6 +151,11 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
+// SEC-9: fail fast when required connection strings are absent from all config sources.
+builder.Services.AddOptions<RequiredConnectionStringsOptions>()
+    .BindConfiguration("ConnectionStrings")
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<RequiredConnectionStringsOptions>, RequiredConnectionStringsOptionsValidator>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<CardVault.Application.Ports.IUserTokenService>(sp => sp.GetRequiredService<TokenService>());
 builder.Services.AddScoped<CardVault.Application.Ports.IOpenBankingTokenIssuer>(sp => sp.GetRequiredService<TokenService>());
