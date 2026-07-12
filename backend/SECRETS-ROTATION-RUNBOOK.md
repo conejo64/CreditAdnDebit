@@ -75,8 +75,8 @@ Authorization: Bearer <admin-jwt>
 
 Repeat until the batch reports `updatedCount = 0`.
 
-Automated coverage: `TokenVaultServiceReencryptAuditTests`,
-`VaultRevocationGateTests.OrphanProofGate_ZeroCount_OpensAfterFullReencryption`.
+Behavior tests: `TokenVaultServiceReencryptAuditTests`,
+`VaultReencryptionRevocationBehaviorTests.ReEncryptBatch_MigratesAllRecords_OrphanCountReachesZero`.
 
 ### Step 4 — Verify the orphan-proof gate reaches COUNT == 0
 
@@ -100,10 +100,16 @@ SELECT COUNT(*) FROM token_vault WHERE key_id NOT IN ('k3');
 
 Only the `COUNT(...) == 0` query above is authoritative for "is it safe to revoke".
 
-Automated coverage: `VaultRevocationGateTests.OrphanProofGate_NonZeroCount_BlocksRevocation`,
-`VaultRevocationGateTests.TerminalBatch_ZeroRemainingRecords_ReportsNoopStatus_NotCompleted`,
-`VaultRevocationGateTests.TerminalBatch_ZeroRemainingRecords_EmitsNoAuditEvent`,
-`VaultRevocationGateTests.TerminalBatch_AfterRealBatch_SecondCallIsNoopAndGateStaysOpen`.
+> **This gate is a MANUAL operator check — there is no automated software control that
+> blocks revocation.** The tests below verify the *behavior* the gate reasons about
+> (terminal "noop" batch, no audit event on an empty batch) and document the orphan-count
+> formula, but the decision to proceed is yours, based on the SQL query above.
+
+Behavior tests: `VaultReencryptionRevocationBehaviorTests.OrphanCountFormula_MatchesRunbookGateCondition`
+(documents the formula; not an enforced control),
+`VaultReencryptionRevocationBehaviorTests.TerminalBatch_ZeroRemainingRecords_ReportsNoopStatus_NotCompleted`,
+`VaultReencryptionRevocationBehaviorTests.TerminalBatch_ZeroRemainingRecords_EmitsNoAuditEvent`,
+`VaultReencryptionRevocationBehaviorTests.TerminalBatch_AfterRealBatch_SecondCallIsNoopAndGateStaysOpen`.
 
 ### Step 5 — Revoke `k1`/`k2`
 
@@ -121,10 +127,10 @@ row still referencing `k1`/`k2` becomes permanently undecryptable by the running
 service — `VaultCrypto.DecryptFromParts` throws `Unknown KeyId` for those rows. This is
 intentional fail-loud behavior, not a bug — it is exactly why the gate exists.
 
-Automated coverage: `VaultRevocationGateTests.Revocation_WhileGateNonzero_DecryptStillWorksForRemainingOldKeyRecords`
+Behavior tests: `VaultReencryptionRevocationBehaviorTests.PrematureRevocation_OfStillReferencedKey_FailsLoudlyAtDecrypt`
 (proves the failure mode a premature revocation produces),
-`VaultRevocationGateTests.RevokedKey_DecryptAttempt_ThrowsUnknownKeyId`,
-`VaultRevocationGateTests.RevokedKey_DecryptAttempt_ExceptionContainsNoPlaintextPan`.
+`VaultReencryptionRevocationBehaviorTests.RevokedKey_DecryptAttempt_ThrowsUnknownKeyId`,
+`VaultReencryptionRevocationBehaviorTests.RevokedKey_DecryptAttempt_ExceptionContainsNoPlaintextPan`.
 
 ### Step 6 — Rotate the non-vault secrets
 

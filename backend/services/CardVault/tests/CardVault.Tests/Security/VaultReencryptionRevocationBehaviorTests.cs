@@ -9,16 +9,25 @@ using BuildingBlocks.Outbox;
 namespace CardVault.Tests.Security;
 
 /// <summary>
-/// SEC-01 (tasks 2.10, 2.12, 2.14): orphan-proof re-encryption gate + revocation
-/// safety tests, satisfying `vault-and-pci` scenarios "Revocation is not performed
-/// if re-encryption is incomplete" and "Revoked old key cannot decrypt".
+/// SEC-01 (tasks 2.10, 2.12, 2.14): re-encryption and post-revocation decrypt BEHAVIOR
+/// tests, satisfying `vault-and-pci` scenarios "Revocation is not performed if
+/// re-encryption is incomplete" and "Revoked old key cannot decrypt".
 ///
-/// The gate condition SHALL be COUNT(TokenVault WHERE KeyId NOT IN (activeKeyId)) == 0,
-/// NOT a wait on LastReencryptStatus == "completed" — a terminal (zero-remaining) batch
-/// is expected to report status "noop" and emit no audit event; that is the correct
-/// terminal state, not a failure.
+/// IMPORTANT — scope of what these tests verify:
+///   - They exercise the REAL <see cref="TokenVaultService.ReEncryptBatchAsync"/> and
+///     <see cref="VaultCrypto"/> behavior (record migration, terminal "noop" batch,
+///     audit-event emission, and decrypt failure once a key is absent from config).
+///   - They do NOT prove an enforced software revocation gate, because there is none:
+///     revocation is a MANUAL operator action (remove k1/k2 from config + restart),
+///     documented in SECRETS-ROTATION-RUNBOOK.md. The orphan-count check
+///     (COUNT(KeyId NOT IN (activeKeyId)) == 0) is a runbook procedure the operator
+///     runs by hand; <see cref="OrphanCountFormula_MatchesRunbookGateCondition"/> only
+///     documents that formula, it does not assert an automated control.
+/// The gate condition is COUNT(KeyId NOT IN (activeKeyId)) == 0, NOT a wait on
+/// LastReencryptStatus == "completed" — a terminal (zero-remaining) batch reports status
+/// "noop" and emits no audit event; that is the correct terminal state, not a failure.
 /// </summary>
-public sealed class VaultRevocationGateTests
+public sealed class VaultReencryptionRevocationBehaviorTests
 {
     private static readonly Dictionary<string, string> ThreeKeyOptions = new()
     {
@@ -75,10 +84,14 @@ public sealed class VaultRevocationGateTests
         return seedCrypto;
     }
 
-    // ─── Task 2.10: explicit orphan-proof COUNT gate ──────────────────────────
+    // ─── Task 2.10: the runbook's manual orphan-count gate formula ────────────
+    // NOTE: this documents the formula the operator checks BY HAND before revoking
+    // (there is no automated enforcement — see the class summary). It verifies the
+    // real EF COUNT query returns the orphan count; the open/closed decision itself
+    // is runbook procedure, not production code.
 
     [Fact]
-    public async Task OrphanProofGate_NonZeroCount_BlocksRevocation()
+    public async Task OrphanCountFormula_MatchesRunbookGateCondition()
     {
         var dbName = $"RevocationGate_{Guid.NewGuid():N}";
         var (db, svc) = BuildService(dbName, ThreeKeyOptions, "k3");
@@ -92,13 +105,14 @@ public sealed class VaultRevocationGateTests
         var orphanCount = db.TokenVault.Count(x => x.KeyId != "k3");
         orphanCount.Should().Be(4, because: "precondition: 4 records still reference k1/k2 before re-encryption");
 
-        // Gate assertion — revocation must NOT proceed while COUNT > 0.
-        GateIsOpen(orphanCount).Should().BeFalse(
-            because: "the orphan-proof gate must stay closed while any TokenVault row references a non-active key");
+        // Documents the runbook's manual pre-revocation check: it must read "not clear
+        // to revoke" while any TokenVault row references a non-active key.
+        RunbookGateWouldAllowRevocation(orphanCount).Should().BeFalse(
+            because: "the operator's manual orphan-count check must report 'do not revoke' while COUNT > 0");
     }
 
     [Fact]
-    public async Task OrphanProofGate_ZeroCount_OpensAfterFullReencryption()
+    public async Task ReEncryptBatch_MigratesAllRecords_OrphanCountReachesZero()
     {
         var dbName = $"RevocationGate_{Guid.NewGuid():N}";
         var (db, svc) = BuildService(dbName, ThreeKeyOptions, "k3");
@@ -108,14 +122,16 @@ public sealed class VaultRevocationGateTests
         db.VaultSettings.Add(new VaultSettingsEntity { Id = Guid.NewGuid(), ActiveKeyId = "k3", UpdatedOn = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
 
-        // Act — run batches until the migration is exhausted.
+        // Act — run the REAL re-encryption batch until the migration is exhausted.
         await svc.ReEncryptBatchAsync(10, "system-job", "job-trace-1", CancellationToken.None);
 
         var orphanCount = db.TokenVault.Count(x => x.KeyId != "k3");
         orphanCount.Should().Be(0, because: "a single batch of size 10 covers all 3 seeded records");
 
-        GateIsOpen(orphanCount).Should().BeTrue(
-            because: "the orphan-proof gate opens exactly when COUNT(KeyId NOT IN (active)) == 0");
+        // The runbook's manual gate would now read "clear to revoke" — because real
+        // re-encryption drove the orphan count to zero, not because of any test math.
+        RunbookGateWouldAllowRevocation(orphanCount).Should().BeTrue(
+            because: "COUNT(KeyId NOT IN (active)) == 0 after ReEncryptBatchAsync migrated every record");
     }
 
     // ─── Terminal batch: zero-remaining is a "noop", not a failure ────────────
@@ -180,15 +196,15 @@ public sealed class VaultRevocationGateTests
             because: "the terminal no-op batch must not add a second audit row");
 
         var orphanCount = db.TokenVault.Count(x => x.KeyId != "k3");
-        GateIsOpen(orphanCount).Should().BeTrue(
-            because: "after the real batch fully migrates all records, the gate opens even though " +
-                     "the terminal call reports 'noop' rather than 'completed'");
+        RunbookGateWouldAllowRevocation(orphanCount).Should().BeTrue(
+            because: "after the real batch fully migrates all records, the manual gate reads 'clear to revoke' " +
+                     "even though the terminal call reports 'noop' rather than 'completed'");
     }
 
-    // ─── Task 2.12: revocation blocked while gate is nonzero ──────────────────
+    // ─── Task 2.12: premature revocation of a still-referenced key fails loudly ─
 
     [Fact]
-    public void Revocation_WhileGateNonzero_DecryptStillWorksForRemainingOldKeyRecords()
+    public void PrematureRevocation_OfStillReferencedKey_FailsLoudlyAtDecrypt()
     {
         // Revocation is modeled as removing a key from VaultOptions.Keys. Simulate the
         // "premature revocation" mistake: attempt a decrypt of a still-referenced k1
@@ -296,10 +312,13 @@ public sealed class VaultRevocationGateTests
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The orphan-proof gate condition per task 2.10: COUNT(TokenVault WHERE KeyId
-    /// NOT IN (activeKeyId)) == 0. Intentionally NOT derived from LastReencryptStatus.
+    /// Mirrors the orphan-count check the OPERATOR performs BY HAND before revoking keys,
+    /// per SECRETS-ROTATION-RUNBOOK.md task 2.10: revocation is clear only when
+    /// COUNT(TokenVault WHERE KeyId NOT IN (activeKeyId)) == 0 (intentionally NOT derived
+    /// from LastReencryptStatus). This is NOT an enforced software control — it documents
+    /// the runbook formula so a regression in the formula's expectation is caught in review.
     /// </summary>
-    private static bool GateIsOpen(int orphanCount) => orphanCount == 0;
+    private static bool RunbookGateWouldAllowRevocation(int orphanCount) => orphanCount == 0;
 
     private sealed class NullEventBus : IEventBus
     {
