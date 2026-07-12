@@ -5,69 +5,39 @@ using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace CardVault.Tests.Services;
 
 /// <summary>
-/// SEC-02 (3.14): PIN material must never appear in any log sink, across set, verify-success,
-/// verify-failure, and exception/error paths.
+/// SEC-02 (3.14): PIN material must never appear in any sink `PinService` actually writes to,
+/// across set, verify-success, verify-failure, and exception/error paths.
 ///
-/// `PinService` currently makes zero `ILogger` calls, so this test asserts against every real
-/// sink the code path actually touches: (a) a capturing `ILoggerProvider` wired the same way
-/// `Program.cs` wires Serilog, in case any current or future code path in the call chain logs;
-/// (b) the persisted `AuditEventEntity.PayloadJson` rows written by `AuditService.WriteAsync`,
-/// which are the actual audit sink `PinService` writes to on every set/verify/blocked/invalid
-/// path; (c) the exception message thrown by `SetPinAsync` on a not-found card. This is a
-/// regression guard: if a future change adds a stray `_logger.LogDebug($"pin={pin}")`-style
-/// call, or starts including the PIN in an audit payload, this test fails.
+/// `PinService` takes only <c>(CardVaultDbContext, AuditService)</c> and makes zero
+/// <c>ILogger</c> calls, so there is no log sink to assert against — asserting against a
+/// capturing logger the SUT is not wired to would pass unconditionally and prove nothing.
+/// This test instead guards the sinks the code path genuinely touches:
+/// (a) the persisted <see cref="AuditEventEntity.PayloadJson"/> rows written by
+/// <c>AuditService.WriteAsync</c> on every set/verify/blocked/invalid path — the real audit sink;
+/// (b) the exception message thrown by <c>SetPinAsync</c> on a not-found card.
+/// If a future change threads an <c>ILogger</c> into <c>PinService</c>, extend this test with a
+/// capturing sink that is actually wired to the SUT so it can observe (and forbid) PIN material.
 /// </summary>
 public sealed class PinServiceLoggingTests : IDisposable
 {
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        public List<string> CapturedMessages { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(CapturedMessages);
-
-        public void Dispose() { }
-
-        private sealed class CapturingLogger : ILogger
-        {
-            private readonly List<string> _sink;
-            public CapturingLogger(List<string> sink) => _sink = sink;
-
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-            {
-                _sink.Add(formatter(state, exception));
-                if (exception is not null) _sink.Add(exception.ToString());
-            }
-        }
-    }
-
     private readonly CardVaultDbContext _db;
     private readonly AuditService _audit;
     private readonly PinService _sut;
-    private readonly CapturingLoggerProvider _logProvider;
-    private readonly ILoggerFactory _loggerFactory;
 
     public PinServiceLoggingTests()
     {
         _db = TestDbContextFactory.Create();
         _audit = new AuditService(_db);
         _sut = new PinService(_db, _audit);
-
-        _logProvider = new CapturingLoggerProvider();
-        _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(_logProvider));
     }
 
     public void Dispose()
     {
         _db.Dispose();
-        _loggerFactory.Dispose();
     }
 
     private async Task<CardEntity> CreateTestCardAsync()
@@ -121,7 +91,7 @@ public sealed class PinServiceLoggingTests : IDisposable
     }
 
     [Fact]
-    public async Task SetPinAsync_Then_VerifyPinAsync_SuccessAndFailure_NeverLeakPinMaterial()
+    public async Task SetPinAsync_Then_VerifyPinAsync_SuccessAndFailure_NeverLeakPinToAuditSink()
     {
         const string pin = "7391";
         const string wrongPin = "0002";
@@ -132,12 +102,8 @@ public sealed class PinServiceLoggingTests : IDisposable
         await _sut.VerifyPinAsync(card.Id, pin, CancellationToken.None);       // success path
         await _sut.VerifyPinAsync(card.Id, wrongPin, CancellationToken.None);  // failure path
 
-        // (a) capturing ILogger sink — PinService makes no logging calls today; this proves
-        // that fact and guards against a future regression.
-        _logProvider.CapturedMessages.Should().NotContain(m =>
-            AllForbiddenEncodingsOf(pin).Any(m.Contains) || AllForbiddenEncodingsOf(wrongPin).Any(m.Contains));
-
-        // (b) the real audit sink PinService writes to on every call.
+        // The real audit sink PinService writes to on every call — must never carry PIN material
+        // (plaintext or any base64/hex encoding of it).
         var auditEvents = await _db.AuditEvents.AsNoTracking().ToListAsync(CancellationToken.None);
         auditEvents.Should().NotBeEmpty("SetPinAsync and VerifyPinAsync must write audit events");
         auditEvents.Should().OnlyContain(e =>
