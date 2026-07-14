@@ -34,6 +34,16 @@ public sealed class CardEntity
     public int PinRetryCount { get; set; }
     public DateTimeOffset? PinBlockedUntil { get; set; }
 
+    // SEC-02 - Salted, cost-parameterized PIN hashing (Argon2id interim)
+    [MaxLength(32)]
+    public string? PinHashAlgorithm { get; set; }
+
+    [MaxLength(128)]
+    public string? PinHashParams { get; set; }
+
+    [MaxLength(64)]
+    public string? PinSalt { get; set; }
+
     public DateTimeOffset CreatedOn { get; set; } = DateTimeOffset.UtcNow;
 
     public List<CardStatusHistoryEntity> History { get; set; } = new();

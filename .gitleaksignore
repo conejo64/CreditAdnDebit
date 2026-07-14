@@ -1,0 +1,9 @@
+# Fingerprints of findings reviewed and confirmed as non-secrets.
+# Format: <commit>:<file>:<rule-id>:<line>
+# Each entry exempts exactly one historical finding; the rule itself stays
+# active for any new occurrence.
+
+# Dummy Npgsql connection string in a migration-script test. No connection is
+# ever opened — Npgsql only needs a syntactically valid string to build its
+# SQL-generation services (see the comment at the call site).
+cf5a861d1ef1ca1872be4012eba56d8e74cf88eb:backend/services/CardVault/tests/CardVault.Tests/Migrations/AddPinKdfColumnsMigrationTests.cs:inline-connection-string-password:26
