@@ -53,9 +53,23 @@ public class AuthController : ControllerBase
 
     [HttpPost("refresh")]
     [AllowAnonymous]
-    public async Task<IResult> Refresh([FromBody] RefreshRequest req, CancellationToken ct)
+    public async Task<IResult> Refresh([FromBody] RefreshRequest? req, CancellationToken ct)
     {
-        return await _mediator.Send(new RefreshTokenCommand(req), ct);
+        // SEC-03: the cv_rt cookie is the primary source; the (now-optional) body field
+        // is kept only as a fallback so the contract stays backward-compatible.
+        var refreshToken = Request.Cookies[AuthCookieNames.RefreshToken] ?? req?.RefreshToken;
+        var result = await _mediator.Send(new RefreshTokenCommand(new RefreshRequest(refreshToken)), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IResult> Logout(CancellationToken ct)
+    {
+        var refreshToken = Request.Cookies[AuthCookieNames.RefreshToken];
+        var result = await _mediator.Send(new LogoutCommand(refreshToken), ct);
+        AuthCookieWriter.ClearCookies(Response);
+        return result;
     }
 
     [HttpGet("me")]

@@ -19,7 +19,7 @@ public sealed record AuthSessionResponse(
     string? Message,
     AuthenticatedUserResponse? User);
 
-public sealed record RefreshRequest(string RefreshToken);
+public sealed record RefreshRequest(string? RefreshToken = null);
 
 public sealed record MfaEnableRequest(string Email, string Password);
 

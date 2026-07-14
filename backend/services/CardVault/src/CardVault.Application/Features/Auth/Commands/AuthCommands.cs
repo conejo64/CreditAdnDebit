@@ -189,7 +189,11 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, I
     public async Task<IResult> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
         var req = request.Request;
-        var hash = _tokens.HashRefreshToken(req.RefreshToken);
+        var refreshToken = req.RefreshToken;
+        if (string.IsNullOrEmpty(refreshToken))
+            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+
+        var hash = _tokens.HashRefreshToken(refreshToken);
         var stored = await _idDb.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == hash, cancellationToken);
         if (stored is null || !stored.IsActive)
             return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
@@ -217,6 +221,39 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, I
 
         var authenticatedUser = await _tokens.BuildAuthenticatedUserAsync(user);
         return Results.Ok(new AuthSessionResponse(false, access, newRefresh, "OK", authenticatedUser));
+    }
+}
+
+// SEC-03: logout revokes the stored refresh token (if any is supplied) so a captured
+// cv_rt value cannot be used to mint new sessions after logout. Clearing the cookies
+// themselves is a presentation-layer concern (AuthController), not this handler's job —
+// this handler stays pure, DB-only, no HttpResponse dependency.
+public record LogoutCommand(string? RefreshToken) : IRequest<IResult>;
+public class LogoutCommandHandler : IRequestHandler<LogoutCommand, IResult>
+{
+    private readonly IdentityAppDbContext _idDb;
+    private readonly IUserTokenService _tokens;
+
+    public LogoutCommandHandler(IdentityAppDbContext idDb, IUserTokenService tokens)
+    {
+        _idDb = idDb;
+        _tokens = tokens;
+    }
+
+    public async Task<IResult> Handle(LogoutCommand request, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrEmpty(request.RefreshToken))
+        {
+            var hash = _tokens.HashRefreshToken(request.RefreshToken);
+            var stored = await _idDb.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == hash, cancellationToken);
+            if (stored is not null && stored.RevokedOn is null)
+            {
+                stored.RevokedOn = DateTimeOffset.UtcNow;
+                await _idDb.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return Results.NoContent();
     }
 }
 
