@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using CardVault.Application.Contracts;
 using CardVault.Application.Features.Auth.Commands;
+using CardVault.Api.Security;
 using System.Security.Claims;
 
 namespace CardVault.Api.Controllers;
@@ -31,7 +32,8 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IResult> Login([FromBody] LoginRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new LoginCommand(req), ct);
+        var result = await _mediator.Send(new LoginCommand(req), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
     [HttpPost("mfa/enable")]
@@ -45,7 +47,8 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IResult> MfaVerify([FromBody] MfaVerifyRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new MfaVerifyCommand(req), ct);
+        var result = await _mediator.Send(new MfaVerifyCommand(req), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
     [HttpPost("refresh")]
