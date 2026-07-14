@@ -5,8 +5,6 @@ import { Observable, of, throwError } from 'rxjs';
 import { catchError, finalize, map, shareReplay, switchMap, tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
-const ACCESS_TOKEN_KEY = 'auth.access_token';
-const REFRESH_TOKEN_KEY = 'auth.refresh_token';
 const USER_KEY = 'auth.user';
 
 export type Role = string;
@@ -31,8 +29,6 @@ interface AuthenticatedUserResponse {
 
 interface AuthSessionResponse {
     mfaRequired: boolean;
-    accessToken: string | null;
-    refreshToken: string | null;
     message: string | null;
     user: AuthenticatedUserResponse | null;
 }
@@ -48,13 +44,7 @@ export class AuthService {
     private readonly authErrorSignal = signal<string | null>(null);
     private readonly isSubmittingSignal = signal(false);
 
-    private refreshRequest$: Observable<string> | null = null;
-
-    constructor() {
-        if (!this.getAccessToken()) {
-            this.clearSession(false);
-        }
-    }
+    private refreshRequest$: Observable<void> | null = null;
 
     get currentUser() {
         return this.currentUserSignal.asReadonly();
@@ -95,23 +85,14 @@ export class AuthService {
             });
     }
 
-    refreshSession(): Observable<string> {
-        const refreshToken = this.getRefreshToken();
-        if (!refreshToken) {
-            return throwError(() => new Error('No refresh token available.'));
-        }
-
+    refreshSession(): Observable<void> {
+        // SEC-03: the refresh token travels as the HttpOnly cv_rt cookie (withCredentials,
+        // set by the interceptor) — there is no client-readable token to send here.
         if (!this.refreshRequest$) {
             this.refreshRequest$ = this.http
-                .post<AuthSessionResponse>(`${environment.apiUrl}/auth/refresh`, { refreshToken })
+                .post<AuthSessionResponse>(`${environment.apiUrl}/auth/refresh`, {})
                 .pipe(
-                    map((response) => {
-                        if (!this.applySessionResponse(response)) {
-                            throw new Error('Invalid refresh response.');
-                        }
-
-                        return response.accessToken as string;
-                    }),
+                    map(() => void 0),
                     catchError((error) => {
                         this.clearSession(false);
                         return throwError(() => error);
@@ -142,33 +123,21 @@ export class AuthService {
     }
 
     ensureAuthenticated(): Observable<boolean | UrlTree> {
-        const accessToken = this.getAccessToken();
-        if (!accessToken) {
-            this.clearSession(false);
-            return of(this.router.createUrlTree(['/auth/login']));
-        }
-
-        if (this.currentUserSignal() && !this.isTokenExpired(accessToken)) {
-            return of(true);
-        }
-
-        if (this.isTokenExpired(accessToken) && this.getRefreshToken()) {
-            return this.refreshSession().pipe(
-                switchMap(() => this.loadCurrentUser()),
-                map(() => true),
-                catchError(() => {
-                    this.clearSession();
-                    return of(this.router.createUrlTree(['/auth/login']));
-                })
-            );
-        }
-
+        // SEC-03: session validity can no longer be checked client-side (the access token
+        // is an HttpOnly cookie, unreadable by JS). /auth/me is the source of truth; on a
+        // 401 we attempt one refresh (cookie-driven) and retry /auth/me once more.
         return this.loadCurrentUser().pipe(
             map(() => true),
-            catchError(() => {
-                this.clearSession();
-                return of(this.router.createUrlTree(['/auth/login']));
-            })
+            catchError(() =>
+                this.refreshSession().pipe(
+                    switchMap(() => this.loadCurrentUser()),
+                    map(() => true),
+                    catchError(() => {
+                        this.clearSession(false);
+                        return of(this.router.createUrlTree(['/auth/login']));
+                    })
+                )
+            )
         );
     }
 
@@ -204,15 +173,12 @@ export class AuthService {
     }
 
     logout(redirect = true): void {
-        this.clearSession(redirect);
-    }
-
-    getAccessToken(): string | null {
-        return localStorage.getItem(ACCESS_TOKEN_KEY);
-    }
-
-    getRefreshToken(): string | null {
-        return localStorage.getItem(REFRESH_TOKEN_KEY);
+        // SEC-03: revoke the server-side refresh token and clear the HttpOnly cookies.
+        // Local session state is cleared regardless of whether the backend call succeeds.
+        this.http.post(`${environment.apiUrl}/auth/logout`, {}).subscribe({
+            next: () => this.clearSession(redirect),
+            error: () => this.clearSession(redirect)
+        });
     }
 
     hasRole(role: string): boolean {
@@ -243,16 +209,12 @@ export class AuthService {
     }
 
     private applySessionResponse(response: AuthSessionResponse): boolean {
-        if (!response.accessToken || !response.refreshToken || !response.user) {
+        if (!response.user) {
             this.clearSession(false);
             return false;
         }
 
-        const user = this.mapUser(response.user);
-        localStorage.setItem(ACCESS_TOKEN_KEY, response.accessToken);
-        localStorage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
-        this.currentUserSignal.set(user);
+        this.setCurrentUser(this.mapUser(response.user));
         this.authErrorSignal.set(null);
         return true;
     }
@@ -265,8 +227,6 @@ export class AuthService {
     private clearSession(redirect = true): void {
         this.currentUserSignal.set(null);
         this.authErrorSignal.set(null);
-        localStorage.removeItem(ACCESS_TOKEN_KEY);
-        localStorage.removeItem(REFRESH_TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
 
         if (redirect) {
@@ -300,17 +260,4 @@ export class AuthService {
         };
     }
 
-    private isTokenExpired(token: string): boolean {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1] ?? ''));
-            if (typeof payload.exp !== 'number') {
-                return false;
-            }
-
-            return payload.exp * 1000 <= Date.now();
-        }
-        catch {
-            return true;
-        }
-    }
 }
