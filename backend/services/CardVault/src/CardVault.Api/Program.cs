@@ -584,8 +584,13 @@ app.UseSerilogRequestLogging();
 app.UseCors();
 // SEC-12: security headers applied uniformly, before Swagger/auth/routing.
 app.UseMiddleware<CardVault.Api.Security.SecurityHeadersMiddleware>();
-app.UseSwagger();
-app.UseSwaggerUI();
+// SEC-03/SEC-12: Swagger is gated to Development so the strict production CSP does not
+// need 'unsafe-inline' to keep the docs UI working.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 app.UseAuthentication();
 app.UseMiddleware<RequestIdMiddleware>();
 app.UseAuthorization();

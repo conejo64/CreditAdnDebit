@@ -1,5 +1,9 @@
+using CardVault.Api.Security;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace CardVault.Tests.Security;
 
@@ -47,5 +51,47 @@ public sealed class SecurityHeadersTests : IClassFixture<CardVaultWebApplication
 
         response.Headers.TryGetValues("Content-Security-Policy", out var csp).Should().BeTrue();
         csp!.First().Should().NotBeNullOrWhiteSpace();
+    }
+
+    /// <summary>
+    /// SEC-03 hardening: outside Development the CSP must be strict — no 'unsafe-inline' —
+    /// so the header keeps its XSS mitigation. Swagger (the only reason for the inline
+    /// relaxation) is gated to Development, so production has no reason to relax it.
+    /// </summary>
+    [Fact]
+    public async Task ProductionCsp_HasNoUnsafeInline_AndStillDeniesFraming()
+    {
+        var csp = await CaptureCspForEnvironment("Production");
+
+        csp.Should().NotContain("unsafe-inline");
+        csp.Should().Contain("frame-ancestors 'none'");
+    }
+
+    [Fact]
+    public async Task DevelopmentCsp_AllowsUnsafeInline_ForSwaggerUi()
+    {
+        var csp = await CaptureCspForEnvironment("Development");
+
+        csp.Should().Contain("'unsafe-inline'");
+    }
+
+    private static async Task<string> CaptureCspForEnvironment(string environmentName)
+    {
+        var middleware = new SecurityHeadersMiddleware(new TestHostEnvironment(environmentName));
+        var context = new DefaultHttpContext();
+
+        await middleware.InvokeAsync(context, _ => Task.CompletedTask);
+
+        return context.Response.Headers["Content-Security-Policy"].ToString();
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public TestHostEnvironment(string environmentName) => EnvironmentName = environmentName;
+
+        public string EnvironmentName { get; set; }
+        public string ApplicationName { get; set; } = "CardVault.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }
