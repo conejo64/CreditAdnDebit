@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router, UrlTree } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError, finalize, map, shareReplay, switchMap, tap } from 'rxjs/operators';
@@ -31,6 +31,10 @@ interface AuthSessionResponse {
     mfaRequired: boolean;
     message: string | null;
     user: AuthenticatedUserResponse | null;
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+    return error instanceof HttpErrorResponse && error.status === 401;
 }
 
 @Injectable({
@@ -125,19 +129,27 @@ export class AuthService {
     ensureAuthenticated(): Observable<boolean | UrlTree> {
         // SEC-03: session validity can no longer be checked client-side (the access token
         // is an HttpOnly cookie, unreadable by JS). /auth/me is the source of truth; on a
-        // 401 we attempt one refresh (cookie-driven) and retry /auth/me once more.
+        // genuine 401 we attempt one refresh (cookie-driven) and retry /auth/me once more.
         return this.loadCurrentUser().pipe(
             map(() => true),
-            catchError(() =>
-                this.refreshSession().pipe(
+            catchError((error: unknown) => {
+                // Only a real 401 means the session is invalid and worth a cookie-driven
+                // refresh. A transient failure (500, timeout, network drop) must NOT tear
+                // down a still-valid session — rethrow it as a retryable error instead of
+                // forcing a false logout.
+                if (!isUnauthorizedError(error)) {
+                    return throwError(() => error);
+                }
+
+                return this.refreshSession().pipe(
                     switchMap(() => this.loadCurrentUser()),
                     map(() => true),
                     catchError(() => {
                         this.clearSession(false);
                         return of(this.router.createUrlTree(['/auth/login']));
                     })
-                )
-            )
+                );
+            })
         );
     }
 

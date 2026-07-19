@@ -98,6 +98,28 @@ describe('AuthService — cookie-based session (SEC-03)', () => {
     httpMock.expectOne(`${environment.apiUrl}/auth/me`).flush(mockUser);
   });
 
+  it('ensureAuthenticated should NOT refresh or clear the session on a transient /auth/me error (500)', (done) => {
+    // Seed an authenticated session first.
+    service.login('user@test.com', 'Password123!');
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush({ mfaRequired: false, message: 'OK', user: mockUser });
+    expect(service.currentUser()?.email).toBe('user@test.com');
+
+    service.ensureAuthenticated().subscribe({
+      next: () => fail('a transient server error must not resolve the guard'),
+      error: (err) => {
+        expect(err.status).toBe(500);
+        // A backend blip is not an identity failure — the session must survive.
+        expect(service.currentUser()?.email).toBe('user@test.com');
+        done();
+      }
+    });
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/me`)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    // afterEach httpMock.verify() asserts NO /auth/refresh request was ever issued.
+  });
+
   it('ensureAuthenticated should redirect to login when both /auth/me and refresh fail', (done) => {
     service.ensureAuthenticated().subscribe((result) => {
       expect(result).not.toBe(true);

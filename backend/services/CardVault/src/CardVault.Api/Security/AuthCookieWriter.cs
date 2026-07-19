@@ -47,6 +47,17 @@ public static class AuthCookieWriter
     /// (mfaRequired/message/user only). Any other result (errors, MFA-required-without-
     /// tokens) is passed through unchanged.
     /// </summary>
+    /// <remarks>
+    /// SECURITY-CRITICAL COUPLING (SEC-03): cookies are written ONLY when
+    /// <paramref name="result"/> is exactly <c>Ok&lt;AuthSessionResponse&gt;</c> — the type
+    /// produced by <c>Results.Ok(new AuthSessionResponse(...))</c> in the auth handlers.
+    /// If any auth success path is ever changed to return its body another way
+    /// (e.g. <c>Results.Json(...)</c>), this method SILENTLY no-ops: no cookies are set and
+    /// the raw AccessToken/RefreshToken flow straight back in the JSON body, defeating the
+    /// HttpOnly-cookie migration. Any new auth success response MUST keep the
+    /// <c>Ok&lt;AuthSessionResponse&gt;</c> shape. This contract is guarded by
+    /// AuthCookieIssuanceTests / AuthCookieAcceptanceTests — keep them green.
+    /// </remarks>
     public static IResult ApplyCookies(HttpContext context, IResult result)
     {
         if (result is not Ok<AuthSessionResponse> ok || ok.Value is not { } session)
