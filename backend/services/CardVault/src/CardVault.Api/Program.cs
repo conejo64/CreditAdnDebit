@@ -371,13 +371,18 @@ using (var scope = app.Services.CreateScope())
     var cardDb = sp.GetRequiredService<CardVaultDbContext>();
     var idDb = sp.GetRequiredService<IdentityAppDbContext>();
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    // Dev/test (or InMemory provider) uses EnsureCreated; prod applies migrations.
+    // SEC-05: mirrors the identical IsoAudit.Api/IsoSwitch.Api guard — EnsureCreated/
+    // Migrate() split alone would throw against a WebApplicationFactory-swapped
+    // InMemory context, since Migrate() requires a relational provider.
+    var isInMemory = cardDb.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) ?? false;
     var retryCount = 0;
     while (retryCount < 5)
     {
         try
         {
             logger.LogInformation("Attempting to apply migrations (Attempt {RetryCount}/5)...", retryCount + 1);
-            if (app.Environment.IsDevelopment())
+            if (app.Environment.IsDevelopment() || isInMemory)
             {
                 cardDb.Database.EnsureCreated();
                 try { idDb.Database.Migrate(); } catch { idDb.Database.EnsureCreated(); }
@@ -403,51 +408,68 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    // Seed roles + default admin
+    // Seed roles unconditionally — roles are not secrets (SEC-05, identity-and-access).
     var roleMgr = sp.GetRequiredService<RoleManager<IdentityRole>>();
     string[] roles = ["Admin", "Operator", "Auditor"];
     foreach (var r in roles)
         if (!await roleMgr.RoleExistsAsync(r))
             await roleMgr.CreateAsync(new IdentityRole(r));
-    var userMgr = sp.GetRequiredService<UserManager<AppUser>>();
-    var adminEmail = app.Configuration["Seed:AdminEmail"] ?? "admin@demo.com";
-    var sharedPass = app.Configuration["Seed:AdminPassword"] ?? "Admin1234!";
-    var seedUsers = new[]
-    {
-        new { Email = adminEmail, Roles = new[] { "Admin" }, Permissions = new[] { "vault:detokenize" } },
-        new { Email = "operator@demo.com", Roles = new[] { "Operator" }, Permissions = Array.Empty<string>() },
-        new { Email = "auditor@demo.com", Roles = new[] { "Auditor" }, Permissions = Array.Empty<string>() },
-        new { Email = "admin.auditor@demo.com", Roles = new[] { "Admin", "Auditor" }, Permissions = new[] { "vault:detokenize" } },
-        new { Email = "breakglass@demo.com", Roles = new[] { "Admin", "Operator", "Auditor" }, Permissions = new[] { "vault:detokenize" } }
-    };
 
-    foreach (var seedUser in seedUsers)
+    // SEC-05: default admin/operator/auditor USER seeding (shared password) is
+    // Development-only. No compiled-in credential fallback — absent config never
+    // fabricates a known admin. Matches the catalog-seed gate below.
+    if (app.Environment.IsDevelopment())
     {
-        var user = await userMgr.FindByEmailAsync(seedUser.Email);
-        if (user is null)
+        var userMgr = sp.GetRequiredService<UserManager<AppUser>>();
+        var adminEmail = app.Configuration["Seed:AdminEmail"];
+        var sharedPass = app.Configuration["Seed:AdminPassword"];
+
+        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(sharedPass))
         {
-            user = new AppUser
+            logger.LogWarning(
+                "Seed:AdminEmail / Seed:AdminPassword not configured; skipping Development default " +
+                "admin/operator/auditor user seeding.");
+        }
+        else
+        {
+            var seedUsers = new[]
             {
-                UserName = seedUser.Email,
-                Email = seedUser.Email,
-                EmailConfirmed = true
+                new { Email = adminEmail, Roles = new[] { "Admin" }, Permissions = new[] { "vault:detokenize" } },
+                new { Email = "operator@demo.com", Roles = new[] { "Operator" }, Permissions = Array.Empty<string>() },
+                new { Email = "auditor@demo.com", Roles = new[] { "Auditor" }, Permissions = Array.Empty<string>() },
+                new { Email = "admin.auditor@demo.com", Roles = new[] { "Admin", "Auditor" }, Permissions = new[] { "vault:detokenize" } },
+                new { Email = "breakglass@demo.com", Roles = new[] { "Admin", "Operator", "Auditor" }, Permissions = new[] { "vault:detokenize" } }
             };
 
-            var created = await userMgr.CreateAsync(user, sharedPass);
-            if (!created.Succeeded)
-                continue;
-        }
+            foreach (var seedUser in seedUsers)
+            {
+                var user = await userMgr.FindByEmailAsync(seedUser.Email);
+                if (user is null)
+                {
+                    user = new AppUser
+                    {
+                        UserName = seedUser.Email,
+                        Email = seedUser.Email,
+                        EmailConfirmed = true
+                    };
 
-        var currentRoles = await userMgr.GetRolesAsync(user);
-        var rolesToAdd = seedUser.Roles.Except(currentRoles, StringComparer.OrdinalIgnoreCase).ToArray();
-        if (rolesToAdd.Length > 0)
-            await userMgr.AddToRolesAsync(user, rolesToAdd);
+                    var created = await userMgr.CreateAsync(user, sharedPass);
+                    if (!created.Succeeded)
+                        continue;
+                }
 
-        var currentClaims = await userMgr.GetClaimsAsync(user);
-        foreach (var permission in seedUser.Permissions)
-        {
-            if (!currentClaims.Any(c => c.Type == "perm" && string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase)))
-                await userMgr.AddClaimAsync(user, new Claim("perm", permission));
+                var currentRoles = await userMgr.GetRolesAsync(user);
+                var rolesToAdd = seedUser.Roles.Except(currentRoles, StringComparer.OrdinalIgnoreCase).ToArray();
+                if (rolesToAdd.Length > 0)
+                    await userMgr.AddToRolesAsync(user, rolesToAdd);
+
+                var currentClaims = await userMgr.GetClaimsAsync(user);
+                foreach (var permission in seedUser.Permissions)
+                {
+                    if (!currentClaims.Any(c => c.Type == "perm" && string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase)))
+                        await userMgr.AddClaimAsync(user, new Claim("perm", permission));
+                }
+            }
         }
     }
 
@@ -507,20 +529,30 @@ using (var scope = app.Services.CreateScope())
 
         if (!await cardDb.OpenBankingClients.AnyAsync())
         {
-            var secret = app.Configuration["Seed:OpenBankingClientSecret"] ?? "OpenBanking123!";
-            cardDb.OpenBankingClients.Add(new CardVault.Infrastructure.Persistence.OpenBanking.OpenBankingClientEntity
+            // SEC-05: no compiled-in fallback secret — skip with a warning rather than
+            // fabricating a known Open Banking demo client secret.
+            var secret = app.Configuration["Seed:OpenBankingClientSecret"];
+            if (string.IsNullOrWhiteSpace(secret))
             {
-                Id = Guid.NewGuid(),
-                ClientId = "ob_demo_client",
-                Name = "Demo Open Banking Client",
-                SecretHash = CardVault.Application.Services.OpenBankingService.HashSecret(secret),
-                AllowedScopes = "ob:balances ob:transactions",
-                Enabled = true,
-                AllowAllAccounts = true,
-                CreatedOn = DateTimeOffset.UtcNow,
-                UpdatedOn = DateTimeOffset.UtcNow
-            });
-            await cardDb.SaveChangesAsync();
+                logger.LogWarning(
+                    "Seed:OpenBankingClientSecret not configured; skipping Open Banking demo client seeding.");
+            }
+            else
+            {
+                cardDb.OpenBankingClients.Add(new CardVault.Infrastructure.Persistence.OpenBanking.OpenBankingClientEntity
+                {
+                    Id = Guid.NewGuid(),
+                    ClientId = "ob_demo_client",
+                    Name = "Demo Open Banking Client",
+                    SecretHash = CardVault.Application.Services.OpenBankingService.HashSecret(secret),
+                    AllowedScopes = "ob:balances ob:transactions",
+                    Enabled = true,
+                    AllowAllAccounts = true,
+                    CreatedOn = DateTimeOffset.UtcNow,
+                    UpdatedOn = DateTimeOffset.UtcNow
+                });
+                await cardDb.SaveChangesAsync();
+            }
         }
 
         if (!await cardDb.RewardPrograms.AnyAsync())
