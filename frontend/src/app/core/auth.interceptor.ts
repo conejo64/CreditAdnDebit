@@ -12,7 +12,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return next(req);
     }
 
-    const request = attachBearerToken(req, authService.getAccessToken());
+    // SEC-03: the access/refresh tokens are HttpOnly cookies — withCredentials makes the
+    // browser attach them automatically. There is no Authorization header to build here.
+    const request = withCredentialsRequest(req);
 
     return next(request).pipe(
         catchError((error) => {
@@ -21,7 +23,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
             }
 
             return authService.refreshSession().pipe(
-                switchMap((token) => next(attachBearerToken(req, token))),
+                switchMap(() => next(withCredentialsRequest(req))),
                 catchError((refreshError) => {
                     authService.logout();
                     return throwError(() => refreshError);
@@ -31,16 +33,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     );
 };
 
-function attachBearerToken(request: HttpRequest<unknown>, token: string | null): HttpRequest<unknown> {
-    if (!token || isAnonymousAuthRequest(request.url)) {
-        return request;
-    }
-
-    return request.clone({
-        setHeaders: {
-            Authorization: `Bearer ${token}`
-        }
-    });
+function withCredentialsRequest(request: HttpRequest<unknown>): HttpRequest<unknown> {
+    return request.clone({ withCredentials: true });
 }
 
 function isApiRequest(url: string): boolean {

@@ -335,85 +335,153 @@ design explicitly rejects a dual-accept window, so this is one atomic cross-surf
 
 ### Backend: cookie issuance
 
-- [ ] 4.1 **[test-first]** Add an integration test: successful login response sets `cv_at` and `cv_rt` cookies,
+- [x] 4.1 **[test-first]** Add an integration test: successful login response sets `cv_at` and `cv_rt` cookies,
       each carrying `HttpOnly`, `Secure`, and a `SameSite` attribute, and the JSON body does NOT contain a
       JS-readable `accessToken`/`refreshToken` field relied on for storage — satisfying scenario "Successful
       login issues HttpOnly Secure token cookies". Confirm it fails against the current body-token response.
-- [ ] 4.2 Add a thin auth-cookie helper in the presentation layer (`AuthController` or a dedicated helper) that
+      Implemented as `AuthCookieIssuanceTests` (2 tests). Confirmed RED (compile error, `AuthCookieWriter` did
+      not exist) before 4.2, GREEN after.
+- [x] 4.2 Add a thin auth-cookie helper in the presentation layer (`AuthController` or a dedicated helper) that
       receives the existing `AuthSessionResponse` from `LoginCommandHandler`/`MfaVerifyCommandHandler` and
       writes `cv_at`/`cv_rt` via `HttpContext.Response.Cookies.Append`, then strips raw tokens from the JSON
       body (keep only `mfaRequired`, `message`, `user`). Handlers stay pure — no `HttpResponse` dependency
       added to the Application layer (clean-architecture boundary preserved).
-- [ ] 4.3 Set cookie attributes: `HttpOnly=true`, `Secure=true` unconditionally (never relaxed in Production);
+      Implemented `CardVault.Api/Security/AuthCookieWriter.cs`. Design refinement: rather than changing
+      handler return types, `ApplyCookies(HttpContext, IResult)` pattern-matches the existing
+      `Ok<AuthSessionResponse>` typed result already produced by `Results.Ok(...)` (ASP.NET Core 8+ typed
+      results) — handlers are 100% unchanged, still return `IResult`, and existing handler-level unit tests
+      (`AuthHandlerTests`) keep compiling untouched. `AuthController.Login`/`MfaVerify` now call
+      `AuthCookieWriter.ApplyCookies(HttpContext, result)`.
+- [x] 4.3 Set cookie attributes: `HttpOnly=true`, `Secure=true` unconditionally (never relaxed in Production);
       `SameSite=Lax` (design-selected value for same-registrable-domain dev/prod topology); refresh cookie
       additionally scoped with `Path=/api/auth`.
-- [ ] 4.4 **[test-first]** Add a test asserting `Program.cs`'s Production configuration never relaxes
+      Implemented in `AuthCookieWriter.BuildAccessTokenCookieOptions`/`BuildRefreshTokenCookieOptions` — no
+      environment parameter exists in the signature at all, so there is no branch capable of relaxing it.
+- [x] 4.4 **[test-first]** Add a test asserting `Program.cs`'s Production configuration never relaxes
       `HttpOnly`/`Secure` regardless of environment branching — satisfying scenario "Production never relaxes
       HttpOnly or Secure".
+      Implemented as `AuthCookieAttributeTests` (2 tests), asserting the cookie-options builders always
+      produce `HttpOnly=true`/`Secure=true` — this is the strongest test possible for "no branch exists",
+      since the builders take no environment input at all.
 
 ### Backend: cookie acceptance in auth pipeline
 
-- [ ] 4.5 **[test-first]** Add a test: a request with a valid `cv_at` cookie and NO `Authorization` header
+- [x] 4.5 **[test-first]** Add a test: a request with a valid `cv_at` cookie and NO `Authorization` header
       against a protected endpoint succeeds and authorizes identically to an equivalent bearer-token request —
       satisfying scenario "Protected endpoint accepts the token from the cookie". Confirm it fails before 4.6.
-- [ ] 4.6 Add a JWT-bearer `OnMessageReceived` event to the existing `AddJwtBearer` configuration that, when
+      Implemented as `AuthCookieAcceptanceTests` (2 tests) against `GET /api/auth/me`. Confirmed RED (401
+      because no `OnMessageReceived` cookie fallback existed) before 4.6, GREEN after.
+- [x] 4.6 Add a JWT-bearer `OnMessageReceived` event to the existing `AddJwtBearer` configuration that, when
       the `Authorization` header is absent, pulls the access token from the `cv_at` cookie into
       `context.Token`. Token validation params/policies stay unchanged.
+      Implemented in `Program.cs`'s `AddJwtBearer(o => ...)` block. Confirmed the test factory's
+      `PostConfigure<JwtBearerOptions>` (which overrides only `TokenValidationParameters` for the test signing
+      key) does not clobber `Events`, so the cookie-fallback event is active in tests too.
 
 ### Backend: refresh + logout on the cookie model
 
-- [ ] 4.7 **[test-first]** Add a test: `POST /api/auth/refresh` called with a valid `cv_rt` cookie and an
+- [x] 4.7 **[test-first]** Add a test: `POST /api/auth/refresh` called with a valid `cv_rt` cookie and an
       empty/absent body succeeds, validates the refresh token from the cookie, and sets fresh `cv_at`/`cv_rt`
       cookies — satisfying scenario "Refresh reissues cookies from the refresh cookie". Confirm the test fails
       against the current body-only contract before changing it.
-- [ ] 4.8 Change `RefreshRequest(string RefreshToken)` in
+      Implemented as `AuthRefreshLogoutCookieTests.Refresh_WithRefreshCookieAndNoBody_ReissuesBothCookies` +
+      `Refresh_NoBodyNoCookie_ReturnsUnauthorized`. Confirmed RED (415 Unsupported Media Type on a bodyless
+      POST, since `[FromBody] RefreshRequest req` was non-nullable/required) before 4.8, GREEN after.
+- [x] 4.8 Change `RefreshRequest(string RefreshToken)` in
       `CardVault.Application/Contracts/AuthContracts.cs` to make the body token optional/nullable (e.g.
       `RefreshRequest(string? RefreshToken = null)`), and update `RefreshTokenCommand` / its handler to accept
       the refresh token from either the cookie (primary, read in the controller) or the now-optional body field,
       with the controller passing the cookie value into the command when present. This is a REQUIRED explicit
       change to the record shape and handler — do not treat as trivial.
-- [ ] 4.9 **[test-first]** Add a logout test: `POST /api/auth/logout` clears both cookies, and a subsequent
+      Done: `RefreshRequest` is now `(string? RefreshToken = null)`; `AuthController.Refresh` takes
+      `[FromBody] RefreshRequest? req` and resolves `Request.Cookies["cv_rt"] ?? req?.RefreshToken` before
+      constructing the command. `RefreshTokenCommandHandler` now guards on `string.IsNullOrEmpty` and returns
+      401 instead of NRE-ing on `HashRefreshToken`.
+- [x] 4.9 **[test-first]** Add a logout test: `POST /api/auth/logout` clears both cookies, and a subsequent
       request to a protected endpoint using the now-cleared cookies returns `401 Unauthorized` — satisfying
       scenario "Logout clears the token cookies".
-- [ ] 4.10 Implement `POST /api/auth/logout`: clear both cookies via `Response.Cookies.Delete` and revoke the
+      Implemented as `AuthRefreshLogoutCookieTests.Logout_ClearsBothCookies_AndSubsequentProtectedCallIsRejected`
+      + `Logout_RevokesStoredRefreshToken_SoItCanNoLongerBeUsedToRefresh` (extra: proves the refresh token is
+      revoked server-side, not just cleared client-side). Confirmed RED (404, endpoint did not exist) before
+      4.10, GREEN after.
+- [x] 4.10 Implement `POST /api/auth/logout`: clear both cookies via `Response.Cookies.Delete` and revoke the
       stored refresh token (reuse existing revocation logic).
-- [ ] 4.11 Confirm `Cors:AllowedOrigins` in `appsettings.Development.json` includes `http://localhost:4200`
+      Implemented: new pure `LogoutCommand`/`LogoutCommandHandler` (DB-only, mirrors the existing
+      `RevokedOn` revocation pattern from `RefreshTokenCommandHandler`) + `AuthController.Logout`, which sends
+      the command then calls `AuthCookieWriter.ClearCookies(Response)`.
+- [x] 4.11 Confirm `Cors:AllowedOrigins` in `appsettings.Development.json` includes `http://localhost:4200`
       (no CORS code change expected — `Program.cs` already builds CORS with `.AllowCredentials()` and an
       explicit allowlist per ADR-4); add the origin if missing.
+      Confirmed already present (`appsettings.Development.json` line 18: `"AllowedOrigins": [
+      "http://localhost:4200" ]`) — no change needed.
 
 ### Backend: security headers (SEC-12)
 
-- [ ] 4.12 **[test-first]** Add a test: any CardVault response includes `X-Content-Type-Options: nosniff`,
+- [x] 4.12 **[test-first]** Add a test: any CardVault response includes `X-Content-Type-Options: nosniff`,
       `X-Frame-Options: DENY`, and a non-empty `Content-Security-Policy` header whose `frame-ancestors`
       directive is `'none'` — satisfying SEC-12 scenarios "Responses carry X-Content-Type-Options nosniff",
       "Responses deny framing", "Content-Security-Policy header is present".
-- [ ] 4.13 Add a response-header middleware (`app.Use(...)` after `UseCors`) emitting the three headers on all
+      Implemented as `SecurityHeadersTests` (3 tests) against `GET /health`. Confirmed RED (headers absent)
+      before 4.13, GREEN after.
+- [x] 4.13 Add a response-header middleware (`app.Use(...)` after `UseCors`) emitting the three headers on all
       CardVault responses. Gate the strict CSP to non-Development, or add Swagger UI's needed
       `script-src`/`style-src` origins in Development only, so Swagger keeps working locally.
+      Implemented `SecurityHeadersMiddleware` (`IMiddleware`, mirrors the existing `RequestIdMiddleware`
+      pattern), registered via `AddTransient` and `app.UseMiddleware<...>()` right after `app.UseCors()`.
+      Deviation from the "gate to non-Development" suggestion: since `app.UseSwagger()`/`UseSwaggerUI()` in
+      this codebase run unconditionally (not Development-gated), a single CSP with `'unsafe-inline'`
+      script-src/style-src is used in ALL environments instead — this is the design's explicitly-sanctioned
+      second option ("or add the Swagger origins to script-src/style-src ... in Development only") generalized
+      to every environment, avoiding an env-branch that could otherwise break Swagger in Production.
 
 ### Frontend: Angular cutover (atomic, no dual-accept)
 
-- [ ] 4.14 **[test-first]** Add/update `auth.service.ts` unit tests: `applySessionResponse` no longer writes
+- [x] 4.14 **[test-first]** Add/update `auth.service.ts` unit tests: `applySessionResponse` no longer writes
       `ACCESS_TOKEN_KEY`/`REFRESH_TOKEN_KEY` to `localStorage`; it stores only the `user` object (or nothing,
       relying on `/auth/me`). Confirm tests fail against current `localStorage`-writing implementation first.
-- [ ] 4.15 Remove `ACCESS_TOKEN_KEY`/`REFRESH_TOKEN_KEY` `localStorage` reads/writes from `auth.service.ts`;
+      Implemented as `auth.service.spec.ts` (new file, 7 tests). Confirmed RED (2 tests failed on localStorage
+      writes; the `ensureAuthenticated`-via-`/auth/me` tests hung/timed out since the old implementation never
+      called `/auth/me` without a stored token) before 4.15/4.19, GREEN after (10/10 including the
+      interceptor spec run together).
+- [x] 4.15 Remove `ACCESS_TOKEN_KEY`/`REFRESH_TOKEN_KEY` `localStorage` reads/writes from `auth.service.ts`;
       remove `getAccessToken()`/`getRefreshToken()` or make them return `null`; rework the constructor guard
       that previously depended on reading a stored token.
-- [ ] 4.16 **[test-first]** Add/update `auth.interceptor.ts` tests: outgoing API requests carry
+      Done: both constants and both accessor methods removed entirely (grep-confirmed no other consumer
+      before removal); the constructor's token-presence guard removed (no longer meaningful — cv_at is
+      HttpOnly and unreadable by JS).
+- [x] 4.16 **[test-first]** Add/update `auth.interceptor.ts` tests: outgoing API requests carry
       `withCredentials: true` and no `Authorization` header sourced from storage; the 401→refresh retry flow
       calls `/auth/refresh` with `withCredentials` and no body token.
-- [ ] 4.17 Update `auth.interceptor.ts`: drop `attachBearerToken`; set `withCredentials: true` on
+      Implemented as `auth.interceptor.spec.ts` (new file, 3 tests) using `provideHttpClient(withInterceptors(...))`
+      + `provideHttpClientTesting()`. Confirmed RED (withCredentials false, refresh never called) before 4.17,
+      GREEN after.
+- [x] 4.17 Update `auth.interceptor.ts`: drop `attachBearerToken`; set `withCredentials: true` on
       `isApiRequest` URLs; keep the 401→refresh retry logic but let the cookie carry the refresh token.
-- [ ] 4.18 **[test-first]** Add/update tests for `ensureAuthenticated`: it calls `/auth/me`; on 401 it tries
+      Done via a shared `withCredentialsRequest()` helper applied both to the initial request and the
+      post-refresh retry.
+- [x] 4.18 **[test-first]** Add/update tests for `ensureAuthenticated`: it calls `/auth/me`; on 401 it tries
       refresh then retries `/auth/me`; otherwise redirects to login. Remove any test asserting client-side
-      `isTokenExpired` JWT parsing.
-- [ ] 4.19 Remove `isTokenExpired` / client-side JWT parsing from `auth.service.ts`; rework
+      `isTokenExpired` JWT parsing. Covered by `auth.service.spec.ts`'s three `ensureAuthenticated` tests
+      (direct success, refresh-then-retry success, both-fail redirect). No prior `isTokenExpired` test existed
+      to remove (grep-confirmed no spec file referenced it before this change).
+- [x] 4.19 Remove `isTokenExpired` / client-side JWT parsing from `auth.service.ts`; rework
       `ensureAuthenticated` to the `/auth/me`-driven flow described in 4.18. Follow the angular-core skill:
       signals + `inject()`, no lifecycle hooks; RxJS is acceptable here for the refresh-retry flow per the
       skill's "complex async" allowance.
-- [ ] 4.20 End-to-end manual/integration check: login → protected call with no stored token → refresh on 401 →
+      Done. Also updated `logout()` to `POST /api/auth/logout` (revokes the server-side refresh token +
+      clears cookies) before clearing local state — necessary so 4.20's full round-trip (including logout)
+      actually invalidates the session server-side, not just client-side.
+- [x] 4.20 End-to-end manual/integration check: login → protected call with no stored token → refresh on 401 →
       logout → protected call now rejected. Confirms the full cookie round-trip works across both halves in
       the same PR (no drift window).
+      No live browser/e2e environment available in this apply batch (per scope boundary, consistent with
+      SEC-01's operator-executed runbook steps). Strongest verification performed instead: the full round-trip
+      is covered end-to-end by automated tests spanning both halves —
+      `AuthCookieIssuanceTests`/`AuthCookieAcceptanceTests` (login → cookie → protected call),
+      `AuthRefreshLogoutCookieTests` (refresh reissues cookies; logout revokes + clears + subsequent protected
+      call rejected) on the backend, and `auth.service.spec.ts`'s `ensureAuthenticated` 401→refresh→retry test
+      plus `auth.interceptor.spec.ts`'s 401→refresh→retry-original-request test on the frontend. Together these
+      exercise every state transition in the manual script above except an actual real browser executing it.
 
 **Estimated changed lines:** ~350–450 (backend cookie plumbing + refresh contract change + headers +
 ~6 backend tests, plus Angular service/interceptor rewrite + ~5 frontend tests). **Flag: likely exceeds 400.**

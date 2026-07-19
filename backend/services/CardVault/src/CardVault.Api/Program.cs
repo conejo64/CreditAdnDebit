@@ -163,6 +163,8 @@ builder.Services.AddSingleton(builder.Configuration.GetSection("Pci").Get<PciOpt
 builder.Services.AddScoped<PciAuditPublisher>();
 builder.Services.AddScoped<CardVault.Application.Ports.IPciAuditPublisher>(sp => sp.GetRequiredService<PciAuditPublisher>());
 builder.Services.AddTransient<CardVault.Api.Pci.RequestIdMiddleware>();
+// SEC-12: response security headers on every response.
+builder.Services.AddTransient<CardVault.Api.Security.SecurityHeadersMiddleware>();
 // DbContexts
 builder.Services.AddDbContext<CardVaultDbContext>(opt => opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 builder.Services.AddDbContext<IdentityAppDbContext>(opt => opt.UseSqlServer(builder.Configuration.GetConnectionString("SqlServerIdentity")));
@@ -187,6 +189,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
         ValidateLifetime = true
+    };
+    // SEC-03: accept the access token from the cv_at cookie when no Authorization
+    // header is present, so browser clients never need to read the token via JS.
+    // Validation params/policies above are unchanged.
+    o.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                context.Request.Cookies.TryGetValue(CardVault.Api.Security.AuthCookieNames.AccessToken, out var cookieToken) &&
+                !string.IsNullOrEmpty(cookieToken))
+            {
+                context.Token = cookieToken;
+            }
+
+            return Task.CompletedTask;
+        }
     };
 });
 builder.Services.AddAuthorization(options =>
@@ -563,8 +582,15 @@ using (var scope = app.Services.CreateScope())
 
 app.UseSerilogRequestLogging();
 app.UseCors();
-app.UseSwagger();
-app.UseSwaggerUI();
+// SEC-12: security headers applied uniformly, before Swagger/auth/routing.
+app.UseMiddleware<CardVault.Api.Security.SecurityHeadersMiddleware>();
+// SEC-03/SEC-12: Swagger is gated to Development so the strict production CSP does not
+// need 'unsafe-inline' to keep the docs UI working.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 app.UseAuthentication();
 app.UseMiddleware<RequestIdMiddleware>();
 app.UseAuthorization();

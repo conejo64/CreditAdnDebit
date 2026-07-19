@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using CardVault.Application.Contracts;
 using CardVault.Application.Features.Auth.Commands;
+using CardVault.Api.Security;
 using System.Security.Claims;
 
 namespace CardVault.Api.Controllers;
@@ -31,7 +32,8 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IResult> Login([FromBody] LoginRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new LoginCommand(req), ct);
+        var result = await _mediator.Send(new LoginCommand(req), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
     [HttpPost("mfa/enable")]
@@ -45,14 +47,29 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IResult> MfaVerify([FromBody] MfaVerifyRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new MfaVerifyCommand(req), ct);
+        var result = await _mediator.Send(new MfaVerifyCommand(req), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
     [HttpPost("refresh")]
     [AllowAnonymous]
-    public async Task<IResult> Refresh([FromBody] RefreshRequest req, CancellationToken ct)
+    public async Task<IResult> Refresh([FromBody] RefreshRequest? req, CancellationToken ct)
     {
-        return await _mediator.Send(new RefreshTokenCommand(req), ct);
+        // SEC-03: the cv_rt cookie is the primary source; the (now-optional) body field
+        // is kept only as a fallback so the contract stays backward-compatible.
+        var refreshToken = Request.Cookies[AuthCookieNames.RefreshToken] ?? req?.RefreshToken;
+        var result = await _mediator.Send(new RefreshTokenCommand(new RefreshRequest(refreshToken)), ct);
+        return AuthCookieWriter.ApplyCookies(HttpContext, result);
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IResult> Logout(CancellationToken ct)
+    {
+        var refreshToken = Request.Cookies[AuthCookieNames.RefreshToken];
+        var result = await _mediator.Send(new LogoutCommand(refreshToken), ct);
+        AuthCookieWriter.ClearCookies(Response);
+        return result;
     }
 
     [HttpGet("me")]
