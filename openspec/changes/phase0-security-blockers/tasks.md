@@ -584,46 +584,97 @@ task — do not let this PR's fail-fast validation be read as "the admin API is 
 
 ### CardVault: Development-only seed
 
-- [ ] 6.1 **[test-first]** Add a test: with `ASPNETCORE_ENVIRONMENT != Development` (e.g. `Production`) and an
+- [x] 6.1 **[test-first]** Add a test: with `ASPNETCORE_ENVIRONMENT != Development` (e.g. `Production`) and an
       empty identity store, `CardVault.Api` startup does NOT create any administrative user, and no
       `admin@demo.com`/`Admin1234!` credential exists afterward — satisfying scenario "Non-Development never
       auto-seeds a default admin". Confirm it fails against the current unconditional seed block.
-- [ ] 6.2 **[test-first]** Add/confirm a test: with `ASPNETCORE_ENVIRONMENT == Development` and an empty
+      Implemented as `AdminSeedGateTests.Production_EmptyIdentityStore_DoesNotSeedAdminUser`, explicitly
+      supplying a *valid* `Seed:AdminEmail`/`Seed:AdminPassword` in the Production factory override so the test
+      proves the environment gate itself blocks seeding, not merely that the values were empty. Confirmed RED
+      against the pre-6.3 unconditional seed block: `factory.CreateClient()` threw
+      `InvalidOperationException: Relational-specific methods can only be used when the context is using a
+      relational database provider.` from the Production branch's unconditional `cardDb.Database.Migrate()`
+      call against the test's InMemory-swapped `CardVaultDbContext` — this codebase had never exercised
+      `CardVault.Api` booting under `ASPNETCORE_ENVIRONMENT=Production` before this batch (same class of gap
+      PR 5/SEC-04 found in IsoSwitch). GREEN after 6.3 plus the accompanying InMemory-provider migration guard
+      (see 6.3 note).
+- [x] 6.2 **[test-first]** Add/confirm a test: with `ASPNETCORE_ENVIRONMENT == Development` and an empty
       identity store, startup still seeds the default operator roles and admin user for local testing —
       satisfying scenario "Development seeds default operator roles and admin user" (regression guard so 6.3
       doesn't break local dev).
-- [ ] 6.3 In `Program.cs`, wrap the admin/seed-user creation block (currently reading `Seed:AdminEmail` /
+      Implemented as `AdminSeedGateTests.Development_EmptyIdentityStore_StillSeedsDefaultOperatorRolesAndAdminUser`,
+      supplying `Seed:AdminEmail`/`Seed:AdminPassword` via `UseSetting` (committed `appsettings.Development.json`
+      ships both empty per SEC-01/2.1). Passed before 6.3 (expected — the pre-existing unconditional seed already
+      satisfies this scenario) and re-confirmed passing after 6.3's gate was added, proving no regression.
+- [x] 6.3 In `Program.cs`, wrap the admin/seed-user creation block (currently reading `Seed:AdminEmail` /
       `Seed:AdminPassword` with `?? "admin@demo.com"` / `?? "Admin1234!"` fallbacks) in
       `app.Environment.IsDevelopment()`, matching the gate already used for the catalog seed. Remove the `??`
       fallbacks entirely — read directly from `app.Configuration["Seed:AdminEmail"]` /
       `["Seed:AdminPassword"]`; if Development and missing, fail loudly or skip with a warning (never fabricate
       a known admin). Also remove the `?? "OpenBanking123!"` fallback on `Seed:OpenBankingClientSecret`,
       applying the same non-Development gate.
-- [ ] 6.4 Confirm role-seeding (`Admin`/`Operator`/`Auditor`) stays unconditional (roles are not secrets) — no
+      Implemented: the user-seeding block (not the role-seeding block, see 6.4) is now wrapped in
+      `if (app.Environment.IsDevelopment())`; both `??` fallbacks removed — `Seed:AdminEmail`/`Seed:AdminPassword`
+      read directly from `app.Configuration`, and if either is missing/blank the block logs a warning
+      (`logger.LogWarning(...)`) and skips seeding rather than fabricating a known admin. The
+      `Seed:OpenBankingClientSecret` `?? "OpenBanking123!"` fallback was already inside the pre-existing
+      catalog-seed `IsDevelopment()` gate (no new gate needed there) — replaced with the same
+      missing-value-skips-with-a-warning pattern. **Necessary test-infra fix discovered via 6.1's RED
+      evidence:** the pre-existing DB-migration bootstrap called `cardDb.Database.Migrate()`/
+      `idDb.Database.Migrate()` unconditionally in the non-Development branch, which throws against a
+      `WebApplicationFactory`-swapped InMemory `CardVaultDbContext` — fixed with an
+      `cardDb.Database.ProviderName?.Contains("InMemory", ...)` guard alongside `IsDevelopment()`, identical to
+      the precedent already established in `IsoAudit.Api`/`IsoSwitch.Api` `Program.cs` (see PR 5's own
+      apply-progress note for the same discovery in IsoSwitch). Additive/relocation-only; no other Production
+      startup behavior changed.
+- [x] 6.4 Confirm role-seeding (`Admin`/`Operator`/`Auditor`) stays unconditional (roles are not secrets) — no
       change needed there, only the user-seeding-with-shared-password moves inside the Development gate.
+      Confirmed: the `roleMgr`/`RoleExistsAsync`/`CreateAsync` loop remains outside any environment gate,
+      unchanged; only the `userMgr`-based seed-user block was moved inside `IsDevelopment()` per 6.3.
 
 ### IsoSwitch: operator-supplied admin API key, fail-fast
 
-- [ ] 6.5 **[test-first]** Add a test: `IsoSwitch.Api` startup with the admin API key absent from all config
+- [x] 6.5 **[test-first]** Add a test: `IsoSwitch.Api` startup with the admin API key absent from all config
       sources throws before accepting traffic and exits non-zero — satisfying scenario "Missing admin API key
       causes startup failure".
-- [ ] 6.6 **[test-first]** Add a test: admin API key set to the literal `"dev-admin-key"` causes startup to
+      Implemented as `AdminApiKeyStartupTests.MissingAdminApiKey_ThrowsOnStart`. Confirmed RED (no exception
+      thrown — no validator existed yet) before 6.8/6.9, GREEN after.
+- [x] 6.6 **[test-first]** Add a test: admin API key set to the literal `"dev-admin-key"` causes startup to
       throw with an error message referencing the admin API key configuration — satisfying scenario "DEV
       placeholder admin API key causes startup failure".
-- [ ] 6.7 **[test-first]** Add a test: a non-placeholder operator-supplied admin API key allows `IsoSwitch.Api`
+      Implemented as `AdminApiKeyStartupTests.DevPlaceholderAdminApiKey_ThrowsOnStart`, asserting the thrown
+      `OptionsValidationException` message contains `Admin:ApiKey`. Confirmed RED (no exception thrown) before
+      6.8/6.9, GREEN after.
+- [x] 6.7 **[test-first]** Add a test: a non-placeholder operator-supplied admin API key allows `IsoSwitch.Api`
       to start successfully and reach healthy state — satisfying scenario "Valid operator-supplied admin API
       key allows startup".
-- [ ] 6.8 Introduce `AdminApiKeyOptions` bound to the `Admin` config section with `ValidateOnStart()`, and
+      Implemented as `AdminApiKeyStartupTests.ValidOperatorSuppliedAdminApiKey_StartsSuccessfully`, relying on
+      the new `IsoSwitchWebApplicationFactory.TestAdminApiKey` default (added in this batch, mirroring the
+      existing `TestTokenizationSecret`/`TestJwtSigningKey` pattern so every other pre-existing IsoSwitch test
+      keeps passing once the validator is registered). Passed even pre-6.8/6.9 (trivially, since nothing
+      validated the key yet) and re-confirmed passing after.
+- [x] 6.8 Introduce `AdminApiKeyOptions` bound to the `Admin` config section with `ValidateOnStart()`, and
       `AdminApiKeyOptionsValidator : IValidateOptions<AdminApiKeyOptions>` mirroring `JwtOptionsValidator`'s
       structure exactly (same `Forbidden` array pattern), adding `"dev-admin-key"` to the forbidden literal set
       alongside any existing `DEV_ONLY`/`CHANGE_ME`/`placeholder` entries, and failing when the key is
       missing/empty/too short.
-- [ ] 6.9 Register `AddSingleton<IValidateOptions<AdminApiKeyOptions>, AdminApiKeyOptionsValidator>()` in
+      Implemented `IsoSwitch.Api/Security/AdminApiKeyOptions.cs` (`ApiKey` string property, `Section = "Admin"`)
+      and `IsoSwitch.Api/Security/AdminApiKeyOptionsValidator.cs`, byte-for-byte structurally mirroring
+      `CardVault.Api/Security/JwtOptionsValidator.cs`: same `Forbidden` array
+      (`DEV_ONLY`/`CHANGE_ME`/`change_me`/`placeholder`) plus `"dev-admin-key"` appended, same
+      empty-or-shorter-than-32-chars fail, same case-insensitive substring match for forbidden literals.
+- [x] 6.9 Register `AddSingleton<IValidateOptions<AdminApiKeyOptions>, AdminApiKeyOptionsValidator>()` in
       IsoSwitch `Program.cs`, matching the CardVault `JwtOptionsValidator` registration pattern.
-- [ ] 6.10 **[test-first]** Add a config-scan test/assertion: `appsettings.Development.json` for IsoSwitch
+      Implemented: `AddOptions<AdminApiKeyOptions>().BindConfiguration(AdminApiKeyOptions.Section).ValidateOnStart()`
+      + `AddSingleton<IValidateOptions<AdminApiKeyOptions>, AdminApiKeyOptionsValidator>()`, registered
+      immediately after the existing `TokenizationOptions`/`TokenizationOptionsValidator` block in `Program.cs`.
+- [x] 6.10 **[test-first]** Add a config-scan test/assertion: `appsettings.Development.json` for IsoSwitch
       does not contain the literal `"dev-admin-key"` after the change — satisfying scenario "Committed config
       does not contain the dev-admin-key placeholder" (this overlaps with PR 2's SEC-9 config-purge test but
       is re-asserted here since PR 6 stacks after PR 2 and must not regress it).
+      Already covered by pre-existing `CommittedConfigSecretShapeTests.IsoSwitchDevelopmentConfig_AdminApiKey_DoesNotContainDevPlaceholder`
+      (added in PR 2/SEC-01) — confirmed still passing in this batch; `Admin:ApiKey` in
+      `appsettings.Development.json` is `""`, not `"dev-admin-key"`. No new test needed.
 
 **Estimated changed lines:** ~120–170 (CardVault seed-gate edit, IsoSwitch options/validator pair + DI
 registration, ~7 tests). Within budget.

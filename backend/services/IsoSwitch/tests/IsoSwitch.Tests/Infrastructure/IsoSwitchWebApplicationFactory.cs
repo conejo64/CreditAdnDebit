@@ -20,6 +20,7 @@ public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Progr
     // Valid non-placeholder test secrets (32+ chars, no forbidden substrings)
     internal const string TestTokenizationSecret = "TestTokenizationSecretForIsoSwitch32Plus";
     internal const string TestJwtSigningKey      = "TestJwtSigningKeyForIsoSwitchTests32Plus";
+    internal const string TestAdminApiKey        = "TestAdminApiKeyForIsoSwitchTests32PlusChars";
     internal const string Issuer                 = "CardVault";
     internal const string Audience               = "CardSwitch";
 
@@ -30,6 +31,8 @@ public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Progr
         // Inject valid test secrets so startup validation passes by default
         builder.UseSetting("Tokenization:Secret", TestTokenizationSecret);
         builder.UseSetting("Jwt:SigningKey", TestJwtSigningKey);
+        // SEC-05/SEC-11: operator-supplied admin API key fail-fast validation
+        builder.UseSetting("Admin:ApiKey", TestAdminApiKey);
 
         builder.ConfigureTestServices(services =>
         {

@@ -59,6 +59,13 @@ builder.Services.AddOptions<TokenizationOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<TokenizationOptions>, TokenizationOptionsValidator>();
+// SEC-05/SEC-11: operator-supplied admin API key, fail-fast, rejects "dev-admin-key".
+// This establishes the fail-fast validation contract only — Admin:ApiKey currently has
+// no request-time consumer in this codebase (no auth middleware checks it yet).
+builder.Services.AddOptions<AdminApiKeyOptions>()
+    .BindConfiguration(AdminApiKeyOptions.Section)
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<AdminApiKeyOptions>, AdminApiKeyOptionsValidator>();
 builder.Services.AddSingleton<ITokenPanService, TokenPanService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSwaggerGen();
