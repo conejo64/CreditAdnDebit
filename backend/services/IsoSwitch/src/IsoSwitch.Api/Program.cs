@@ -104,11 +104,14 @@ builder.Services.AddScoped<BinaryIsoAuditService>();
 builder.Services.AddScoped<CatalogAuditPersistence>();
 builder.Services.AddSingleton<Field90Service>();
 builder.Services.AddHostedService<ReversalWorker>();
+// IsoSimulatorOptions is registered unconditionally (pure config data, no side
+// effects) so the `/simulator/options` minimal API endpoint can resolve it from
+// DI in every environment; only the simulator's hosted services are dev-gated.
+var simOpt = builder.Configuration.GetSection("IsoSimulator").Get<IsoSimulatorOptions>() ?? new IsoSimulatorOptions();
+builder.Services.AddSingleton(simOpt);
 // ISO simulator server (dev)
 if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue("IsoSimulator:Enabled", true))
 {
-    var simOpt = builder.Configuration.GetSection("IsoSimulator").Get<IsoSimulatorOptions>() ?? new IsoSimulatorOptions();
-    builder.Services.AddSingleton(simOpt);
     builder.Services.AddHostedService<IsoSwitch.Infrastructure.SwitchIso8583.Net.IsoSimulatorServer>();
     // v27 - Demo Kafka consumer for PCI audit (trace correlation)
     if ((builder.Configuration["Kafka:Consumers:PciAuditEnabled"] ?? "true").Equals("true", StringComparison.OrdinalIgnoreCase))
@@ -126,6 +129,12 @@ if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue("IsoSi
 }
 
 // ISO TCP client + connectors
+// SEC-04/SEC-10: TcpIsoClientOptions.UseTls defaults to true; fail startup fast in
+// non-Development environments when TLS is disabled for a non-loopback acquirer host.
+builder.Services.AddOptions<TcpIsoClientOptions>()
+    .BindConfiguration("IsoClient")
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<TcpIsoClientOptions>, TcpIsoClientOptionsValidator>();
 // ADR-3: inject ILogger<TcpIsoClient> — no raw ISO frame bytes reach any log sink (SEC-5)
 // ADR-7: AllowInvalidCert is permitted only in Development; production always validates certs
 builder.Services.AddSingleton(sp =>
@@ -161,14 +170,15 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    // Dev/test (or InMemory provider) uses EnsureCreated; prod applies migrations.
+    var isInMemory = db.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) ?? false;
     var retryCount = 0;
     while (retryCount < 5)
     {
         try
         {
             logger.LogInformation("Attempting to apply migrations for IsoSwitch (Attempt {RetryCount}/5)...", retryCount + 1);
-            // Dev/test uses EnsureCreated (InMemory-compatible); prod applies migrations.
-            if (app.Environment.IsDevelopment())
+            if (app.Environment.IsDevelopment() || isInMemory)
                 await db.Database.EnsureCreatedAsync();
             else
                 await db.Database.MigrateAsync();

@@ -495,30 +495,76 @@ shipping as a single PR per the "no dual-accept window" design decision.
 
 **Spec:** `security-hardening` SEC-10. **Depends on:** PR 2 merged. **Independent of:** SEC-02/03/05.
 
-- [ ] 5.1 **[test-first]** Add a test: binding `TcpIsoClientOptions` with no explicit `UseTls` value resolves
+- [x] 5.1 **[test-first]** Add a test: binding `TcpIsoClientOptions` with no explicit `UseTls` value resolves
       `UseTls == true` — satisfying scenario "UseTls defaults to true when unspecified". Confirm it fails
       against the current `public bool UseTls { get; set; } = false;` default.
-- [ ] 5.2 Flip the default in `TcpIsoClientOptions.cs`: `public bool UseTls { get; set; } = true;`.
-- [ ] 5.3 **[test-first]** Add a test: `ASPNETCORE_ENVIRONMENT=Production` + non-loopback host (e.g.
+      Implemented as `TcpIsoClientOptionsTests` (2 tests: default construction + config-section bind with no
+      explicit `UseTls` key). Confirmed RED (both failed, `Expected: True / Actual: False`) against the
+      pre-5.2 `= false` default, GREEN after.
+- [x] 5.2 Flip the default in `TcpIsoClientOptions.cs`: `public bool UseTls { get; set; } = true;`.
+      Done — one-line change.
+- [x] 5.3 **[test-first]** Add a test: `ASPNETCORE_ENVIRONMENT=Production` + non-loopback host (e.g.
       `acquirer.example.com`) + `UseTls=false` causes `IsoSwitch.Api` startup to throw before accepting
       traffic, with an error message referencing the ISO TCP TLS setting and the offending host, exiting
       non-zero — satisfying scenario "Production with TLS disabled for a non-loopback host fails startup".
-- [ ] 5.4 **[test-first]** Add a test: same Production + `UseTls=false` but host is `127.0.0.1` (loopback) —
+      Implemented as `TcpIsoClientTlsStartupTests.Production_NonLoopbackHost_TlsDisabled_ThrowsOnStart`
+      (`IsoSwitchWebApplicationFactory` + `WithWebHostBuilder` env/host/UseTls override, mirroring
+      `StartupSecretValidationTests`). Confirmed RED before 5.6 (no exception thrown — request succeeded),
+      GREEN after.
+- [x] 5.4 **[test-first]** Add a test: same Production + `UseTls=false` but host is `127.0.0.1` (loopback) —
       startup succeeds — satisfying scenario "Production with TLS disabled for a loopback host is permitted".
-- [ ] 5.5 **[test-first]** Add a test: `ASPNETCORE_ENVIRONMENT=Development` + `UseTls=false` for a
+      Implemented as `TcpIsoClientTlsStartupTests.Production_LoopbackHost_TlsDisabled_StartsSuccessfully`.
+- [x] 5.5 **[test-first]** Add a test: `ASPNETCORE_ENVIRONMENT=Development` + `UseTls=false` for a
       non-loopback host — startup succeeds (fail-fast applies only in Production) — satisfying scenario
       "Development with TLS disabled for a non-loopback host is permitted".
-- [ ] 5.6 Implement the startup validation in IsoSwitch `Program.cs` (in the existing `IsoClient`-binding
+      Implemented as `TcpIsoClientTlsStartupTests.Development_NonLoopbackHost_TlsDisabled_StartsSuccessfully`.
+      Also added a sanity regression test, `Production_NonLoopbackHost_TlsEnabled_StartsSuccessfully`, proving
+      the new `UseTls=true` default itself doesn't break Production startup.
+- [x] 5.6 Implement the startup validation in IsoSwitch `Program.cs` (in the existing `IsoClient`-binding
       factory, or a dedicated `IValidateOptions<TcpIsoClientOptions>` mirroring the
       `TokenizationOptionsValidator`/`JwtOptionsValidator` fail-fast pattern already in the codebase): throw
       `InvalidOperationException` when `!env.IsDevelopment() && !opt.UseTls && !IsLoopback(opt.Host)`.
-- [ ] 5.7 Implement `IsLoopback(host)`: fast path `IPAddress.TryParse` + `IPAddress.IsLoopback`, fall back to
+      Implemented `IsoSwitch.Api/Security/TcpIsoClientOptionsValidator.cs` as
+      `IValidateOptions<TcpIsoClientOptions>` (constructor-injects `IHostEnvironment`), registered via
+      `AddOptions<TcpIsoClientOptions>().BindConfiguration("IsoClient").ValidateOnStart()` +
+      `AddSingleton<IValidateOptions<TcpIsoClientOptions>, TcpIsoClientOptionsValidator>()` in `Program.cs`,
+      exactly mirroring the Tokenization/Jwt validator registration pattern. `ValidateOptionsResult.Fail(...)`
+      is surfaced as `OptionsValidationException` by the framework's `ValidateOnStart` hosted-service pipeline
+      (same mechanism already exercised by `StartupSecretValidationTests`), so no manual
+      `InvalidOperationException` throw was needed — the framework's own exception type satisfies "throws
+      before accepting traffic, exits non-zero, message references the setting and host".
+      **Test-infra discovery (2 pre-existing gaps, fixed to make Production-environment testing possible at
+      all):** (1) `IsoSwitch.Api`'s DB-migration bootstrap block called `Database.MigrateAsync()` whenever
+      `!IsDevelopment()`, which throws `InvalidOperationException` ("Relational-specific methods...") against
+      the test factory's InMemory-swapped `IsoSwitchDbContext` — fixed by adding a
+      `db.Database.ProviderName?.Contains("InMemory", ...)` guard alongside `IsDevelopment()`, identical to the
+      precedent already used in `IsoAudit.Api/Program.cs`. (2) The `/simulator/options` minimal-API endpoint
+      (`GET (IsoSimulatorOptions opt) => ...`) failed ASP.NET Core's parameter-inference at Production startup
+      with `"Body was inferred but the method does not allow inferred body parameters"`, because
+      `IsoSimulatorOptions` was only registered in DI inside the `IsDevelopment()`-gated simulator block — fixed
+      by hoisting the (side-effect-free) `AddSingleton(simOpt)` registration outside the `if`, so the options
+      POCO is always resolvable; the simulator's actual hosted services stay Development-gated, unchanged.
+      Neither fix touches `AllowInvalidCert` (ADR-7, see 5.9) or any other unrelated behavior — both were
+      required only to make `ASPNETCORE_ENVIRONMENT=Production` boot at all under `WebApplicationFactory`,
+      a path this codebase had apparently never exercised for IsoSwitch before this batch.
+- [x] 5.7 Implement `IsLoopback(host)`: fast path `IPAddress.TryParse` + `IPAddress.IsLoopback`, fall back to
       `Dns.GetHostAddresses` for hostnames treating `"localhost"` as loopback, and **fail closed** (treat as
       non-loopback → TLS required) if DNS resolution fails.
-- [ ] 5.8 **[test-first]** Add a test for the fail-closed DNS case: an unresolvable hostname in Production with
+      Implemented as `TcpIsoClientOptionsValidator.IsLoopback` (internal static helper): literal-IP fast path
+      via `IPAddress.TryParse`/`IPAddress.IsLoopback`; explicit `"localhost"` string check; DNS fallback via
+      `Dns.GetHostAddresses` requiring every resolved address to be loopback; any exception (including
+      resolution failure) is caught and returns `false` (fail closed).
+- [x] 5.8 **[test-first]** Add a test for the fail-closed DNS case: an unresolvable hostname in Production with
       `UseTls=false` is treated as non-loopback and fails startup (does not silently permit plaintext).
-- [ ] 5.9 Confirm no change to the existing `AllowInvalidCert` gate at the `// ADR-7: AllowInvalidCert is
+      Implemented as `TcpIsoClientTlsStartupTests.Production_UnresolvableHost_TlsDisabled_ThrowsOnStart`, using
+      the RFC 2606 reserved `.invalid` TLD (`this-host-does-not-exist.invalid`) — guaranteed never to resolve,
+      deterministic in CI (no dependency on a live negative-DNS response for a real-looking domain). Confirmed
+      RED (no exception) before 5.6/5.7, GREEN after.
+- [x] 5.9 Confirm no change to the existing `AllowInvalidCert` gate at the `// ADR-7: AllowInvalidCert is
       permitted only in Development` comment — this task is additive only, ADR-7 stays as-is.
+      Confirmed: the `opt.AllowInvalidCert = builder.Environment.IsDevelopment() && opt.AllowInvalidCert;` line
+      and its ADR-7 comment are byte-for-byte unchanged; the new `AddOptions<TcpIsoClientOptions>()` +
+      validator registration were added immediately above that block, additive only.
 
 **Estimated changed lines:** ~90–130 (one-line default flip, one validator/startup check, one loopback
 helper, ~6 tests). Well within budget.
