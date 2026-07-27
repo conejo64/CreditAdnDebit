@@ -7,3 +7,10 @@
 # ever opened — Npgsql only needs a syntactically valid string to build its
 # SQL-generation services (see the comment at the call site).
 cf5a861d1ef1ca1872be4012eba56d8e74cf88eb:backend/services/CardVault/tests/CardVault.Tests/Migrations/AddPinKdfColumnsMigrationTests.cs:inline-connection-string-password:26
+
+# Prose quotation inside an archived delta spec, not configuration. The line
+# quotes the base spec's earlier out-of-scope note in order to document that
+# SEC-9 supersedes it; the string is documentation about a finding, not a
+# credential. Path is the pre-archive location because that is where the file
+# lived in the referenced commit.
+2c36da04c44b7feba01122614b1dbed99bf2fdaf:openspec/changes/phase0-security-blockers/specs/security-hardening/spec.md:inline-connection-string-password:18
