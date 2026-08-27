@@ -14,7 +14,7 @@ public class CaptureTransactionCommandHandler : IRequestHandler<CaptureTransacti
     private readonly IsoSwitchDbContext _db;
     private readonly ConnectorRegistry _registry;
     private readonly IRoutingEngineV2 _router;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _hsmSvc;
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
 
@@ -22,14 +22,14 @@ public class CaptureTransactionCommandHandler : IRequestHandler<CaptureTransacti
         IsoSwitchDbContext db,
         ConnectorRegistry registry,
         IRoutingEngineV2 router,
-        IMacService macSvc,
+        IHsmService hsmSvc,
         ISwitchEventPublisher publisher,
         IIsoAuditService audit)
     {
         _db = db;
         _registry = registry;
         _router = router;
-        _macSvc = macSvc;
+        _hsmSvc = hsmSvc;
         _publisher = publisher;
         _audit = audit;
     }
@@ -87,8 +87,8 @@ public class CaptureTransactionCommandHandler : IRequestHandler<CaptureTransacti
         if (!string.IsNullOrWhiteSpace(request.PinBlock)) iso.Set(52, request.PinBlock.Trim());
         if (!string.IsNullOrWhiteSpace(request.EmvTlv)) iso.Set(55, request.EmvTlv.Trim().ToUpperInvariant());
 
-        iso.Set(64, _macSvc.ComputeMacHex("CAPTURE"));
-        iso.Set(128, _macSvc.ComputeMacHex("CAPTURE128"));
+        iso.Set(64, _hsmSvc.ComputeMacHex("CAPTURE"));
+        iso.Set(128, _hsmSvc.ComputeMacHex("CAPTURE128"));
 
         var requestJson = JsonSerializer.Serialize(iso.Fields);
 

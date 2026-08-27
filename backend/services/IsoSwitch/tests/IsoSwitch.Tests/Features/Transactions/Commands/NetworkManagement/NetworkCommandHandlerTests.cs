@@ -20,7 +20,8 @@ public class NetworkCommandHandlerTests
         _connector = Substitute.For<IAcquirerConnector>();
         _connector.ConnectorId.Returns("SIMULATOR");
         
-        _registry = new ConnectorRegistry(new[] { _connector });
+        var config = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        _registry = new ConnectorRegistry(new[] { _connector }, config);
         _publisher = Substitute.For<ISwitchEventPublisher>();
         _audit = Substitute.For<IIsoAuditService>();
 

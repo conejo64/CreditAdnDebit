@@ -15,7 +15,7 @@ public class ReversalTransactionCommandHandlerTests : IDisposable
 {
     private readonly IsoSwitchDbContext _db;
     private readonly ConnectorRegistry _registry;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _macSvc;
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
     private readonly IAcquirerConnector _connector;
@@ -28,8 +28,9 @@ public class ReversalTransactionCommandHandlerTests : IDisposable
         _connector = Substitute.For<IAcquirerConnector>();
         _connector.ConnectorId.Returns("SIMULATOR");
         
-        _registry = new ConnectorRegistry(new[] { _connector });
-        _macSvc = Substitute.For<IMacService>();
+        var config = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        _registry = new ConnectorRegistry(new[] { _connector }, config);
+        _macSvc = Substitute.For<IHsmService>();
         _publisher = Substitute.For<ISwitchEventPublisher>();
         _audit = Substitute.For<IIsoAuditService>();
 

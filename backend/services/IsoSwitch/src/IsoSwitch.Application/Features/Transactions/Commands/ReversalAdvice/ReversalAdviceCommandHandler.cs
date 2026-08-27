@@ -15,7 +15,7 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
     private readonly Field90Service _field90Svc;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _hsmSvc;
 
     public ReversalAdviceCommandHandler(
         IsoSwitchDbContext db,
@@ -23,14 +23,14 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
         ISwitchEventPublisher publisher,
         IIsoAuditService audit,
         Field90Service field90Svc,
-        IMacService macSvc)
+        IHsmService hsmSvc)
     {
         _db = db;
         _registry = registry;
         _publisher = publisher;
         _audit = audit;
         _field90Svc = field90Svc;
-        _macSvc = macSvc;
+        _hsmSvc = hsmSvc;
     }
 
     public async Task<ReversalAdviceResult> Handle(ReversalAdviceCommand request, CancellationToken ct)
@@ -86,8 +86,8 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
         }
 
         iso.Set(90, field90);
-        iso.Set(64, _macSvc.ComputeMacHex("REVADV"));
-        iso.Set(128, _macSvc.ComputeMacHex("REVADV128"));
+        iso.Set(64, _hsmSvc.ComputeMacHex("REVADV"));
+        iso.Set(128, _hsmSvc.ComputeMacHex("REVADV128"));
 
         // 5. Create Reversal-Advice Transaction Entity
         var tx = new TransactionEntity
