@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
@@ -9,30 +10,50 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
     ports: ["15432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "Your_strong_Passw0rd!"
     volumes:
       - sqlserver_data:/var/opt/mssql
     ports: ["11433:1433"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"Your_strong_Passw0rd!\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     # CICD-10: corrected image (was bitnamilegacy/kafka:3.7)
     image: bitnami/kafka:3.7
+    restart: unless-stopped
     environment:
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      # CICD-11: use service hostname (was localhost:9092 — breaks inter-container routing)
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENERS=INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
-    ports: ["9092:9092"]
+    ports: 
+      - "9092:9092"
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ── Backend services ────────────────────────────────────────────────────────
   # All three services are built from the backend/ context (ADR-2, ADR-6).
@@ -44,6 +65,7 @@ services:
     build:
       context: ../../backend
       dockerfile: services/CardVault/src/CardVault.Api/Dockerfile
+    restart: unless-stopped
     ports:
       - "5101:5101"
     env_file: .env
@@ -55,14 +77,18 @@ services:
       # CardVault overrides here to its own DB, matching the Kafka override pattern.
       - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres;Password=postgres
     depends_on:
-      - postgres
-      - sqlserver
-      - kafka
+      postgres:
+        condition: service_healthy
+      sqlserver:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
   isoswitch:
     build:
       context: ../../backend
       dockerfile: services/IsoSwitch/src/IsoSwitch.Api/Dockerfile
+    restart: unless-stopped
     ports:
       - "5201:5201"
     env_file: .env
@@ -70,13 +96,16 @@ services:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
     depends_on:
-      - postgres
-      - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
   isoaudit:
     build:
       context: ../../backend
       dockerfile: services/IsoAudit/src/IsoAudit.Api/Dockerfile
+    restart: unless-stopped
     ports:
       - "5301:5301"
     env_file: .env
@@ -84,8 +113,10 @@ services:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
     depends_on:
-      - postgres
-      - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
 volumes:
   postgres_data:
