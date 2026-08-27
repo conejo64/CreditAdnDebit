@@ -12,20 +12,20 @@ public class ReversalTransactionCommandHandler : IRequestHandler<ReversalTransac
 {
     private readonly IsoSwitchDbContext _db;
     private readonly ConnectorRegistry _registry;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _hsmSvc;
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
 
     public ReversalTransactionCommandHandler(
         IsoSwitchDbContext db,
         ConnectorRegistry registry,
-        IMacService macSvc,
+        IHsmService hsmSvc,
         ISwitchEventPublisher publisher,
         IIsoAuditService audit)
     {
         _db = db;
         _registry = registry;
-        _macSvc = macSvc;
+        _hsmSvc = hsmSvc;
         _publisher = publisher;
         _audit = audit;
     }
@@ -70,8 +70,8 @@ public class ReversalTransactionCommandHandler : IRequestHandler<ReversalTransac
         if (!string.IsNullOrWhiteSpace(request.EmvTlv))
             iso.Set(55, request.EmvTlv.Trim().ToUpperInvariant());
 
-        iso.Set(64, _macSvc.ComputeMacHex("DEMO"));
-        iso.Set(128, _macSvc.ComputeMacHex("DEMO128"));
+        iso.Set(64, _hsmSvc.ComputeMacHex("DEMO"));
+        iso.Set(128, _hsmSvc.ComputeMacHex("DEMO128"));
 
         // 3. Send to Connector
         var connector = _registry.Get(tx.ConnectorId);

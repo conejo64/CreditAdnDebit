@@ -21,7 +21,7 @@ public class ReversalAdviceCommandHandlerTests : IDisposable
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
     private readonly Field90Service _field90Svc;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _macSvc;
     private readonly IAcquirerConnector _connector;
     private readonly ReversalAdviceCommandHandler _sut;
 
@@ -32,14 +32,15 @@ public class ReversalAdviceCommandHandlerTests : IDisposable
         _connector = Substitute.For<IAcquirerConnector>();
         _connector.ConnectorId.Returns("SIMULATOR");
         
-        _registry = new ConnectorRegistry(new[] { _connector });
+        var config = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        _registry = new ConnectorRegistry(new[] { _connector }, config);
         _publisher = Substitute.For<ISwitchEventPublisher>();
         _audit = Substitute.For<IIsoAuditService>();
         
         var cfg = Substitute.For<IConfiguration>();
         _field90Svc = new Field90Service(cfg);
         
-        _macSvc = Substitute.For<IMacService>();
+        _macSvc = Substitute.For<IHsmService>();
 
         _sut = new ReversalAdviceCommandHandler(_db, _registry, _publisher, _audit, _field90Svc, _macSvc);
     }

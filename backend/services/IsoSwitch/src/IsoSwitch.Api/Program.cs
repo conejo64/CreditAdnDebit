@@ -164,7 +164,18 @@ builder.Services.AddSingleton<IAcquirerConnector>(sp => new TcpGatewayConnector(
 // Registry by ConnectorId
 builder.Services.AddSingleton<ConnectorRegistry>();
 builder.Services.AddSingleton<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>();
-builder.Services.AddSingleton<IsoSwitch.Infrastructure.SwitchIso8583.Iso.IMacService, IsoSwitch.Infrastructure.SwitchIso8583.Iso.MacService>();
+var hsmProvider = builder.Configuration.GetValue<string>("Hsm:Provider") ?? "Soft";
+if (hsmProvider.Equals("Hardware", StringComparison.OrdinalIgnoreCase))
+{
+    var hsmHost = builder.Configuration.GetValue<string>("Hsm:Host") ?? "localhost";
+    var hsmPort = builder.Configuration.GetValue<int>("Hsm:Port");
+    builder.Services.AddSingleton<IsoSwitch.Infrastructure.SwitchIso8583.Iso.IHsmService>(sp => 
+        new IsoSwitch.Infrastructure.SwitchIso8583.Iso.HardwareHsmProvider(hsmHost, hsmPort, sp.GetService<ILogger<IsoSwitch.Infrastructure.SwitchIso8583.Iso.HardwareHsmProvider>>()));
+}
+else
+{
+    builder.Services.AddSingleton<IsoSwitch.Infrastructure.SwitchIso8583.Iso.IHsmService, IsoSwitch.Infrastructure.SwitchIso8583.Iso.SoftHsmProvider>();
+}
 // Kafka consumer to sync config/events from CardVault
 var kafka = builder.Configuration.GetSection("Kafka");
 builder.Services.AddHostedService(sp =>

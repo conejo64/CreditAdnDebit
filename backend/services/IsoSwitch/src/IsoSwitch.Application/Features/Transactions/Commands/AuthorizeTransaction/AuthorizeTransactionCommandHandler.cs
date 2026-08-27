@@ -15,7 +15,7 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
     private readonly IsoSwitchDbContext _db;
     private readonly ConnectorRegistry _registry;
     private readonly IRoutingEngineV2 _routerV2;
-    private readonly IMacService _macSvc;
+    private readonly IHsmService _hsmSvc;
     private readonly ISwitchEventPublisher _publisher;
     private readonly IIsoAuditService _audit;
     private readonly ILogger<AuthorizeTransactionCommandHandler> _logger;
@@ -24,7 +24,7 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
         IsoSwitchDbContext db,
         ConnectorRegistry registry,
         IRoutingEngineV2 routerV2,
-        IMacService macSvc,
+        IHsmService hsmSvc,
         ISwitchEventPublisher publisher,
         IIsoAuditService audit,
         ILogger<AuthorizeTransactionCommandHandler> logger)
@@ -32,7 +32,7 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
         _db = db;
         _registry = registry;
         _routerV2 = routerV2;
-        _macSvc = macSvc;
+        _hsmSvc = hsmSvc;
         _publisher = publisher;
         _audit = audit;
         _logger = logger;
@@ -90,8 +90,8 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
         if (!string.IsNullOrWhiteSpace(request.PinBlock)) iso.Set(52, request.PinBlock.Trim());
         if (!string.IsNullOrWhiteSpace(request.EmvTlv)) iso.Set(55, request.EmvTlv.Trim().ToUpperInvariant());
 
-        iso.Set(64, _macSvc.ComputeMacHex("AUTH"));
-        iso.Set(128, _macSvc.ComputeMacHex("AUTH128"));
+        iso.Set(64, _hsmSvc.ComputeMacHex("AUTH"));
+        iso.Set(128, _hsmSvc.ComputeMacHex("AUTH128"));
 
         var tx = new TransactionEntity
         {
