@@ -11,7 +11,9 @@ public sealed class ConnectorRegistry
     public ConnectorRegistry(IEnumerable<IAcquirerConnector> connectors, IConfiguration configuration)
     {
         _map = connectors.ToDictionary(c => c.ConnectorId, StringComparer.OrdinalIgnoreCase);
-        _forceSimulator = configuration.GetValue<bool>("Iso:ForceSimulator", false);
+        
+        var forceVal = configuration["Iso:ForceSimulator"];
+        _forceSimulator = bool.TryParse(forceVal, out var b) ? b : false;
     }
 
     public IAcquirerConnector Get(string connectorId)
