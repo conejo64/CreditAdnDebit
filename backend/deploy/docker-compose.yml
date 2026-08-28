@@ -76,6 +76,7 @@ services:
       # .env carries ConnectionStrings__Postgres=isoswitch (for IsoSwitch, no override).
       # CardVault overrides here to its own DB, matching the Kafka override pattern.
       - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres;Password=postgres
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +96,7 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,6 +120,45 @@ services:
       kafka:
         condition: service_healthy
 
+  otel-collector:
+    image: otel/opentelemetry-collector:0.90.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./otel/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    mem_limit: 100m
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    mem_limit: 200m
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    mem_limit: 200m
+
 volumes:
   postgres_data:
   sqlserver_data:
+  prometheus_data:
+  grafana_data:
