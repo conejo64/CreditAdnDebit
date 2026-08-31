@@ -1,0 +1,44 @@
+- generic [ref=f1e2]:
+  - complementary [ref=f1e3]:
+    - generic [ref=f1e4]: ZitronSystem •
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6]: Dashboard
+      - generic [ref=f1e7]: Clientes
+      - generic [ref=f1e8]: Operación emisora
+      - generic [ref=f1e9]: Finanzas
+      - generic [ref=f1e10]: Switch ISO
+      - generic [ref=f1e11]: Seguridad
+      - generic [ref=f1e12]: Administración
+  - main [ref=f1e13]:
+    - generic [ref=f1e14]: REFERENCIA DE INTERFAZ — REQUIERE VALIDACIÓN EN RUNTIME
+    - generic [ref=f1e15]:
+      - heading "Gestión de Clientes" [level=1] [ref=f1e16]
+      - paragraph [ref=f1e17]: Busque, edite y cree los perfiles de los portahabientes.
+      - generic [ref=f1e18]: RefrescarCrear Cliente
+      - generic [ref=f1e20]: ⌕ Buscar por nombre, documento o correo…
+      - table [ref=f1e23]:
+        - rowgroup [ref=f1e24]:
+          - row [ref=f1e25]:
+            - columnheader "CLIENTE" [ref=f1e26]
+            - columnheader "DOCUMENTO" [ref=f1e27]
+            - columnheader "CONTACTO" [ref=f1e28]
+            - columnheader "FECHA" [ref=f1e29]
+            - columnheader "ACCIONES" [ref=f1e30]
+        - rowgroup [ref=f1e31]:
+          - row [ref=f1e32]:
+            - cell "A Cliente Sandbox A" [ref=f1e33]:
+              - generic [ref=f1e34]: A
+              - text: Cliente Sandbox A
+            - cell "••••••••" [ref=f1e35]
+            - cell "••••@sandbox.local" [ref=f1e36]
+            - cell "••/••/••••" [ref=f1e37]
+            - cell "Vista 360" [ref=f1e38]
+          - row [ref=f1e39]:
+            - cell "B Cliente Sandbox B" [ref=f1e40]:
+              - generic [ref=f1e41]: B
+              - text: Cliente Sandbox B
+            - cell "••••••••" [ref=f1e42]
+            - cell "••••@sandbox.local" [ref=f1e43]
+            - cell "••/••/••••" [ref=f1e44]
+            - cell "Vista 360" [ref=f1e45]
+    - generic [ref=f1e46]: Ambiente sandbox · Datos sintéticos y enmascarados · No es captura de una ejecución
