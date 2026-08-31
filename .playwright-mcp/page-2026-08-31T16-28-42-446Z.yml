@@ -1,0 +1,56 @@
+- generic [ref=f7e2]:
+  - complementary [ref=f7e3]:
+    - generic [ref=f7e4]: ZitronSystem •
+    - generic [ref=f7e5]:
+      - generic [ref=f7e6]: Dashboard
+      - generic [ref=f7e7]: Cobranzas
+      - generic [ref=f7e8]: Operación emisora
+      - generic [ref=f7e9]: Finanzas
+      - generic [ref=f7e10]: Switch ISO
+      - generic [ref=f7e11]: Seguridad
+      - generic [ref=f7e12]: Administración
+  - main [ref=f7e13]:
+    - generic [ref=f7e14]: REFERENCIA DE INTERFAZ — REQUIERE VALIDACIÓN EN RUNTIME
+    - generic [ref=f7e15]:
+      - heading "Mora temprana" [level=1] [ref=f7e16]
+      - paragraph [ref=f7e17]: Priorización por antigüedad y monto vencido.
+      - generic [ref=f7e18]: RefrescarGestionar
+      - generic [ref=f7e20]:
+        - generic [ref=f7e21]:
+          - text: 1–30 DÍAS
+          - generic [ref=f7e22]: ••
+          - text: casos sandbox
+        - generic [ref=f7e23]:
+          - text: 31–60 DÍAS
+          - generic [ref=f7e24]: ••
+          - text: casos sandbox
+        - generic [ref=f7e25]:
+          - text: 61–90 DÍAS
+          - generic [ref=f7e26]: •
+          - text: casos sandbox
+        - generic [ref=f7e27]:
+          - text: ">90 DÍAS"
+          - generic [ref=f7e28]: •
+          - text: casos sandbox
+      - table [ref=f7e30]:
+        - rowgroup [ref=f7e31]:
+          - row [ref=f7e32]:
+            - columnheader "CUENTA" [ref=f7e33]
+            - columnheader "ANTIGÜEDAD" [ref=f7e34]
+            - columnheader "MONTO VENCIDO" [ref=f7e35]
+            - columnheader "ESTADO" [ref=f7e36]
+            - columnheader "ACCIÓN" [ref=f7e37]
+        - rowgroup [ref=f7e38]:
+          - row [ref=f7e39]:
+            - cell "acc_••••" [ref=f7e40]
+            - cell "1–30 días" [ref=f7e41]
+            - cell "$•••.••" [ref=f7e42]
+            - cell "GESTIÓN" [ref=f7e43]
+            - cell "Ver detalle" [ref=f7e45]
+          - row [ref=f7e46]:
+            - cell "acc_••••" [ref=f7e47]
+            - cell "31–60 días" [ref=f7e48]
+            - cell "$•••.••" [ref=f7e49]
+            - cell "PRIORIZAR" [ref=f7e50]
+            - cell "Ver detalle" [ref=f7e52]
+    - generic [ref=f7e53]: Ambiente sandbox · Datos sintéticos y enmascarados · No es captura de una ejecución
