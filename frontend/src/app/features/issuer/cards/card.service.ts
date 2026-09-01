@@ -43,7 +43,15 @@ export class CardService {
     }
 
     issueCard(accountId: string, bin: string, pan: string, expiryYyMm: string): Observable<Card> {
-        return this.http.post<Card>(`${this.baseUrl}/issue`, { accountId, bin, pan, expiryYyMm });
+        // CardVault's IssueCardRequest declares `string Bin`. The BIN selector binds to
+        // CatalogBin.binStart, which the catalog API serialises as a number, and the
+        // `bin: string` annotation above is erased at runtime — so coerce at the boundary.
+        return this.http.post<Card>(`${this.baseUrl}/issue`, {
+            accountId,
+            bin: String(bin),
+            pan,
+            expiryYyMm
+        });
     }
 
     activateCard(id: string): Observable<any> {

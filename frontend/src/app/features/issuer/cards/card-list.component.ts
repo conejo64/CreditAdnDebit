@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { CardService, Card, CardStatus } from './card.service';
+import { generatePan } from './pan-generator';
 import { CustomerService, Customer, Account } from '../customers/customer.service';
 import { CatalogService, CatalogBin } from '../../switch/catalog.service';
 import { NotificationService } from '../../../core/notification.service';
@@ -450,14 +451,7 @@ export class CardListComponent {
   issueCard(accountId: string, bin: string) {
     if (!accountId) return;
 
-    // Generate a valid-length PAN (16 chars) starting with the selected BIN
-    let pan = bin;
-    while (pan.length < 15) {
-      pan += Math.floor(Math.random() * 10).toString();
-    }
-    // Simple Luhn-ish suffix or just 16th digit
-    pan += Math.floor(Math.random() * 10).toString();
-
+    const pan = generatePan(bin);
     const expiryYyMm = '2912'; // Dec 2029
 
     this.cardService.issueCard(accountId, bin, pan, expiryYyMm).pipe(
