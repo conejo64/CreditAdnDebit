@@ -78,4 +78,43 @@ describe('CardService — lifecycle endpoints (RED → GREEN)', () => {
     expect(req.request.body).toEqual({ reason: undefined });
     req.flush({ newCardId: 'new-card-id' });
   });
+
+  // ─── issueCard ───────────────────────────────────────────────────────────
+
+  /**
+   * CardVault's IssueCardRequest declares `string Bin`. The BIN selector binds its
+   * value to CatalogBin.binStart, which the catalog API serialises as a JSON number
+   * (BinRangeEntity.BinStart is an int). TypeScript's `bin: string` annotation is
+   * erased at runtime, so a number reached the wire and System.Text.Json refused to
+   * convert it, failing the whole request body with
+   * "The JSON value could not be converted ... Path: $.bin" and a 400.
+   *
+   * The coercion belongs here, at the network boundary, so no caller can reintroduce it.
+   */
+  it('issueCard() should send bin as a JSON string', () => {
+    service.issueCard('acc-1', '438108', '4381081234567890', '2912').subscribe();
+
+    const req = httpMock.expectOne(`${base}/issue`);
+    expect(req.request.method).toBe('POST');
+    expect(typeof req.request.body.bin).toBe('string');
+    expect(req.request.body).toEqual({
+      accountId: 'acc-1',
+      bin: '438108',
+      pan: '4381081234567890',
+      expiryYyMm: '2912'
+    });
+    req.flush({});
+  });
+
+  // RED before the fix: a numeric bin was serialised as a JSON number and rejected.
+  it('issueCard() should stringify a numeric bin before sending it', () => {
+    service.issueCard('acc-2', 438108 as unknown as string, '4381081234567890', '2912').subscribe();
+
+    const req = httpMock.expectOne(`${base}/issue`);
+    expect(typeof req.request.body.bin)
+      .withContext('a numeric bin must not reach the wire as a JSON number')
+      .toBe('string');
+    expect(req.request.body.bin).toBe('438108');
+    req.flush({});
+  });
 });
