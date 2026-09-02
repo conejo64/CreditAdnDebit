@@ -14,3 +14,10 @@ cf5a861d1ef1ca1872be4012eba56d8e74cf88eb:backend/services/CardVault/tests/CardVa
 # credential. Path is the pre-archive location because that is where the file
 # lived in the referenced commit.
 2c36da04c44b7feba01122614b1dbed99bf2fdaf:openspec/changes/phase0-security-blockers/specs/security-hardening/spec.md:inline-connection-string-password:18
+
+# Deliberately credential-shaped fixture in a redaction test. The string is
+# handed to IsoAuditReadinessState.MarkFailed precisely to prove the sanitizer
+# refuses to echo it back: the assertion two lines below requires the exposed
+# reason to be the fixed text "database unavailable". Nothing here is a real
+# credential, the host does not exist, and no connection is ever opened.
+28eb9bd71a79ef99c211835c499a5df17eff2a62:backend/services/IsoAudit/tests/IsoAudit.Tests/Health/IsoAuditReadinessStateTests.cs:inline-connection-string-password:25
