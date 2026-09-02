@@ -1,0 +1,52 @@
+- generic [ref=f8e2]:
+  - complementary [ref=f8e3]:
+    - generic [ref=f8e4]: ZitronSystem •
+    - generic [ref=f8e5]:
+      - generic [ref=f8e6]: Dashboard
+      - generic [ref=f8e7]: Auditoría
+      - generic [ref=f8e8]: Operación emisora
+      - generic [ref=f8e9]: Finanzas
+      - generic [ref=f8e10]: Switch ISO
+      - generic [ref=f8e11]: Seguridad
+      - generic [ref=f8e12]: Administración
+  - main [ref=f8e13]:
+    - generic [ref=f8e14]: REFERENCIA DE INTERFAZ — REQUIERE VALIDACIÓN EN RUNTIME
+    - generic [ref=f8e15]:
+      - heading "Auditoría de transacciones" [level=1] [ref=f8e16]
+      - paragraph [ref=f8e17]: Consulta de eventos y material de auditoría en sandbox.
+      - generic [ref=f8e18]: RefrescarActualizar
+      - generic [ref=f8e20]:
+        - table [ref=f8e23]:
+          - rowgroup [ref=f8e24]:
+            - row [ref=f8e25]:
+              - columnheader "TRACE ID" [ref=f8e26]
+              - columnheader "RED" [ref=f8e27]
+              - columnheader "MTI" [ref=f8e28]
+              - columnheader "MONTO" [ref=f8e29]
+              - columnheader "RESPUESTA" [ref=f8e30]
+          - rowgroup [ref=f8e31]:
+            - row [ref=f8e32]:
+              - cell "trc_••••31" [ref=f8e33]
+              - cell "Sandbox" [ref=f8e34]
+              - cell "0200" [ref=f8e35]
+              - cell "$•••.••" [ref=f8e36]
+              - cell "00 · APPROVED" [ref=f8e37]
+            - row [ref=f8e39]:
+              - cell "trc_••••52" [ref=f8e40]
+              - cell "Sandbox" [ref=f8e41]
+              - cell "0420" [ref=f8e42]
+              - cell "$••.••" [ref=f8e43]
+              - cell "REVIEW" [ref=f8e44]
+        - generic [ref=f8e46]:
+          - heading "Detalle de auditoría" [level=3] [ref=f8e47]
+          - generic [ref=f8e48]:
+            - generic [ref=f8e49]: TRACE REF ID
+            - text: trc_••••31
+          - generic [ref=f8e50]:
+            - generic [ref=f8e51]: HORA DE SISTEMA
+            - text: ••:••:••
+          - generic [ref=f8e52]:
+            - generic [ref=f8e53]: ESTADO
+            - text: Sandbox / datos enmascarados
+          - generic [ref=f8e54]: No se incluye dump TCP, PIN, token ni datos ISO sensibles.
+    - generic [ref=f8e55]: Ambiente sandbox · Datos sintéticos y enmascarados · No es captura de una ejecución

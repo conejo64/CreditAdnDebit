@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using IsoAudit.Api.Health;
 using IsoAudit.Api.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
@@ -46,6 +47,21 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
             ValidateLifetime = true
         };
+        // SEC-03: accept the access token from the cv_at cookie when no Authorization
+        // header is present, so browser clients never need to read the token via JS.
+        jwtBearerOpts.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                    context.Request.Cookies.TryGetValue("cv_at", out var cookieToken) &&
+                    !string.IsNullOrEmpty(cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization(options =>
@@ -65,21 +81,16 @@ builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
     opt.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
 
+builder.Services.Configure<IsoAuditReadinessOptions>(builder.Configuration.GetSection(IsoAuditReadinessOptions.SectionName));
+builder.Services.AddSingleton<IIsoAuditReadinessState, IsoAuditReadinessState>();
+builder.Services.AddSingleton<IsoAuditKafkaTopicProbe>();
+builder.Services.AddHostedService<IsoAuditDatabaseInitializerWorker>();
+builder.Services.AddHostedService<IsoAuditKafkaReadinessWorker>();
 // Kafka consumer worker
 builder.Services.AddHostedService<IsoAuditConsumerWorker>();
 
 var app = builder.Build();
 
-await using (var scope = app.Services.CreateAsyncScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
-    // Dev/test (or InMemory provider) uses EnsureCreated; prod applies migrations.
-    var isInMemory = db.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) ?? false;
-    if (app.Environment.IsDevelopment() || isInMemory)
-        await db.Database.EnsureCreatedAsync();
-    else
-        await db.Database.MigrateAsync();
-}
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -88,7 +99,9 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { ok = true, service = "IsoAudit.Api" }));
+app.MapGet("/health/live", IsoAuditHealthEndpoints.Live).AllowAnonymous();
+app.MapGet("/health/ready", (IIsoAuditReadinessState state) => IsoAuditHealthEndpoints.Ready(state)).AllowAnonymous();
+app.MapGet("/health", (IIsoAuditReadinessState state) => IsoAuditHealthEndpoints.Ready(state)).AllowAnonymous();
 
 app.MapGet("/api/audit/logs", async (int? take, IsoSwitchDbContext db, CancellationToken ct) =>
 {
@@ -103,27 +116,6 @@ app.MapGet("/api/audit/logs", async (int? take, IsoSwitchDbContext db, Cancellat
 
 app.Run();
 
-sealed class DbMigrateWorker : BackgroundService
-{
-    private readonly IServiceProvider _sp;
-    private readonly ILogger<DbMigrateWorker> _logger;
-
-    public DbMigrateWorker(IServiceProvider sp, ILogger<DbMigrateWorker> logger)
-    {
-        _sp = sp;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        await using var scope = _sp.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<IsoSwitchDbContext>();
-        _logger.LogInformation("Applying migrations for IsoAudit...");
-        await db.Database.MigrateAsync(stoppingToken);
-        _logger.LogInformation("Migrations applied.");
-    }
-}
-
 sealed class IsoAuditConsumerWorker : BackgroundService
 {
     static Guid DeterministicGuid(string input)
@@ -136,28 +128,47 @@ sealed class IsoAuditConsumerWorker : BackgroundService
     private readonly ILogger<IsoAuditConsumerWorker> _logger;
     private readonly IServiceProvider _sp;
     private readonly IConfiguration _cfg;
+    private readonly IIsoAuditReadinessState _readiness;
 
-    public IsoAuditConsumerWorker(ILogger<IsoAuditConsumerWorker> logger, IServiceProvider sp, IConfiguration cfg)
+    public IsoAuditConsumerWorker(ILogger<IsoAuditConsumerWorker> logger, IServiceProvider sp, IConfiguration cfg, IIsoAuditReadinessState readiness)
     {
         _logger = logger;
         _sp = sp;
         _cfg = cfg;
+        _readiness = readiness;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
+
+        if (stoppingToken.IsCancellationRequested)
+            return;
+
         var topic = _cfg.GetValue<string>("Kafka:Topics:AuditEvents") ?? "sw.iso.audit";
         var conf = new ConsumerConfig
         {
             BootstrapServers = _cfg.GetValue<string>("Kafka:BootstrapServers") ?? "localhost:9092",
             GroupId = _cfg.GetValue<string>("Kafka:ConsumerGroup") ?? "iso-audit-consumer",
             AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = true
+            EnableAutoCommit = true,
+            AllowAutoCreateTopics = false
         };
 
+        _readiness.MarkStarting(IsoAuditReadinessChecks.Consumer);
         using var consumer = new ConsumerBuilder<string, string>(conf).Build();
-        consumer.Subscribe(topic);
-        _logger.LogInformation("IsoAudit consumer subscribed to {Topic}", topic);
+        try
+        {
+            consumer.Subscribe(topic);
+            _readiness.MarkReady(IsoAuditReadinessChecks.Consumer);
+            _logger.LogInformation("IsoAudit consumer subscribed to {Topic}", topic);
+        }
+        catch (Exception ex)
+        {
+            _readiness.MarkFailed(IsoAuditReadinessChecks.Consumer, "consumer failed");
+            _logger.LogWarning(ex, "IsoAudit consumer failed to subscribe to configured audit topic");
+            return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -203,6 +214,7 @@ sealed class IsoAuditConsumerWorker : BackgroundService
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
+                _readiness.MarkFailed(IsoAuditReadinessChecks.Consumer, "consumer failed");
                 _logger.LogWarning(ex, "IsoAudit consume/store failed");
             }
         }

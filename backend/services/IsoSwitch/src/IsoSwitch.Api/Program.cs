@@ -86,6 +86,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
         ValidateLifetime = true
     };
+    // SEC-03: accept the access token from the cv_at cookie when no Authorization
+    // header is present, so browser clients never need to read the token via JS.
+    o.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                context.Request.Cookies.TryGetValue("cv_at", out var cookieToken) &&
+                !string.IsNullOrEmpty(cookieToken))
+            {
+                context.Token = cookieToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 });
 builder.Services.AddAuthorization(options =>
 {
