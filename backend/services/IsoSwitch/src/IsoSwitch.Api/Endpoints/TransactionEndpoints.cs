@@ -16,7 +16,8 @@ public static class TransactionEndpoints
     public static void MapTransactionEndpoints(this IEndpointRouteBuilder app)
     {
         var operations = app.MapGroup("/api/iso")
-            .RequireAuthorization(IsoSwitchAuthorizationPolicies.OperateSwitch);
+            .RequireAuthorization(IsoSwitchAuthorizationPolicies.OperateSwitch)
+            .AddEndpointFilter<CommercialIsoEndpointGuard>();
 
         operations.MapPost("/authorize", async (HttpRequest http, AuthorizeRequest req, ISender sender, CancellationToken ct) =>
         {
@@ -50,7 +51,7 @@ public static class TransactionEndpoints
                 responseCode = result.ResponseCode, 
                 connectorId = result.ConnectorId, 
                 idempotencyKey = result.IdempotencyKey 
-            });
+        });
         });
 
         operations.MapPost("/reversal", async (ReversalRequest req, ISender sender, CancellationToken ct) =>
@@ -115,41 +116,55 @@ public static class TransactionEndpoints
             });
         });
 
-        operations.MapPost("/reversal-advice", async (HttpRequest http, string traceId, string originalTraceId, ISender sender, CancellationToken ct) =>
+        operations.MapPost("/reversal-advice", async (HttpRequest http, string traceId, string originalTraceId, ISender sender, CommercialIsoEndpointGuard guard, CancellationToken ct) =>
         {
-            var command = new IsoSwitch.Application.Features.Transactions.Commands.ReversalAdvice.ReversalAdviceCommand(
-                TraceId: traceId,
-                OriginalTraceId: originalTraceId,
-                IdempotencyKey: http.GetIdempotencyKey()
-            );
+            return await guard.InvokeAsync(
+                CommercialIsoOperation.ReversalAdvice,
+                async () =>
+                {
+                    var command = new IsoSwitch.Application.Features.Transactions.Commands.ReversalAdvice.ReversalAdviceCommand(
+                        TraceId: traceId,
+                        OriginalTraceId: originalTraceId,
+                        IdempotencyKey: http.GetIdempotencyKey()
+                    );
 
-            var result = await sender.Send(command, ct);
-            return Results.Ok(new { 
-                traceId = result.TraceId, 
-                status = result.Status, 
-                decision = result.Decision, 
-                responseCode = result.ResponseCode, 
-                connectorId = result.ConnectorId, 
-                field90 = result.Field90 
+                    var result = await sender.Send(command, ct);
+                    return Results.Ok(new {
+                        traceId = result.TraceId,
+                        status = result.Status,
+                        decision = result.Decision,
+                        responseCode = result.ResponseCode,
+                        connectorId = result.ConnectorId,
+                        field90 = result.Field90
+                    });
+                });
+        });
+
+        operations.MapPost("/network/ping", async (string traceId, ISender sender, CommercialIsoEndpointGuard guard, CancellationToken ct) =>
+        {
+            return await guard.InvokeAsync(CommercialIsoOperation.NetworkCommand, async () =>
+            {
+                var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.Ping), ct);
+                return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
             });
         });
-
-        operations.MapPost("/network/ping", async (string traceId, ISender sender, CancellationToken ct) =>
+ 
+        operations.MapPost("/network/signon", async (string traceId, ISender sender, CommercialIsoEndpointGuard guard, CancellationToken ct) =>
         {
-            var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.Ping), ct);
-            return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
+            return await guard.InvokeAsync(CommercialIsoOperation.NetworkCommand, async () =>
+            {
+                var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.SignOn), ct);
+                return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
+            });
         });
  
-        operations.MapPost("/network/signon", async (string traceId, ISender sender, CancellationToken ct) =>
+        operations.MapPost("/network/signoff", async (string traceId, ISender sender, CommercialIsoEndpointGuard guard, CancellationToken ct) =>
         {
-            var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.SignOn), ct);
-            return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
-        });
- 
-        operations.MapPost("/network/signoff", async (string traceId, ISender sender, CancellationToken ct) =>
-        {
-            var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.SignOff), ct);
-            return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
+            return await guard.InvokeAsync(CommercialIsoOperation.NetworkCommand, async () =>
+            {
+                var result = await sender.Send(new NetworkCommand(traceId, NetworkOperation.SignOff), ct);
+                return Results.Ok(new { traceId = result.TraceId, mti = result.Mti, responseCode = result.ResponseCode });
+            });
         });
     }
 }

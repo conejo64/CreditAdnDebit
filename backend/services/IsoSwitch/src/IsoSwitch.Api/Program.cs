@@ -1,3 +1,4 @@
+using BuildingBlocks.Commercial;
 using BuildingBlocks.Kafka;
 using IsoSwitch.Api;
 using IsoSwitch.Application;
@@ -53,6 +54,8 @@ var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<st
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddCommercialOptions();
+var commercialOptions = builder.Configuration.GetSection(CommercialOptions.Section).Get<CommercialOptions>() ?? new CommercialOptions();
 // ADR-1: TokenizationOptions with ValidateOnStart + custom placeholder validator
 builder.Services.AddOptions<TokenizationOptions>()
     .BindConfiguration(TokenizationOptions.Section)
@@ -109,6 +112,7 @@ builder.Services.AddSingleton<ISwitchEventPublisher, SwitchEventPublisher>();
 builder.Services.AddScoped<IIsoAuditService, IsoAuditService>();
 builder.Services.AddScoped<BinaryIsoAuditService>();
 builder.Services.AddScoped<CatalogAuditPersistence>();
+builder.Services.AddScoped<CommercialIsoEndpointGuard>();
 builder.Services.AddSingleton<Field90Service>();
 builder.Services.AddHostedService<ReversalWorker>();
 // IsoSimulatorOptions is registered unconditionally (pure config data, no side
@@ -117,7 +121,7 @@ builder.Services.AddHostedService<ReversalWorker>();
 var simOpt = builder.Configuration.GetSection("IsoSimulator").Get<IsoSimulatorOptions>() ?? new IsoSimulatorOptions();
 builder.Services.AddSingleton(simOpt);
 // ISO simulator server (dev)
-if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue("IsoSimulator:Enabled", true))
+if (commercialOptions.CanExposeDemoSurfaces && builder.Environment.IsDevelopment() && builder.Configuration.GetValue("IsoSimulator:Enabled", true))
 {
     builder.Services.AddHostedService<IsoSwitch.Infrastructure.SwitchIso8583.Net.IsoSimulatorServer>();
     // v27 - Demo Kafka consumer for PCI audit (trace correlation)
@@ -159,7 +163,10 @@ builder.Services.AddSingleton(sp =>
 });
 builder.Services.AddScoped<RoutingEngine>();
 builder.Services.AddScoped<IRoutingEngineV2, RoutingEngineV2>();
-builder.Services.AddSingleton<IAcquirerConnector>(sp => new SimulatorConnector(sp.GetRequiredService<TcpIsoClient>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>()));
+if (commercialOptions.CanExposeDemoSurfaces)
+{
+    builder.Services.AddSingleton<IAcquirerConnector>(sp => new SimulatorConnector(sp.GetRequiredService<TcpIsoClient>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>()));
+}
 builder.Services.AddSingleton<IAcquirerConnector>(sp => new TcpGatewayConnector(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IsoSwitch.Infrastructure.SwitchIso8583.Iso.PackagerRegistry>(), sp.GetRequiredService<ILogger<TcpIsoClient>>()));
 // Registry by ConnectorId
 builder.Services.AddSingleton<ConnectorRegistry>();
@@ -219,15 +226,51 @@ using (var scope = app.Services.CreateScope())
     var audit = scope.ServiceProvider.GetRequiredService<CatalogAuditPersistence>();
     await BinRoutingStore.InitializeFromDbAsync(audit, CancellationToken.None);
     await IsoSwitch.Api.Tcp.PanMapStore.InitializeFromDbAsync(audit, CancellationToken.None);
+
+    if (commercialOptions.IsCommercialMode)
+    {
+        var startupAudit = scope.ServiceProvider.GetRequiredService<AuditService>();
+        await startupAudit.WriteAsync(
+            "commercial.mode.started",
+            new
+            {
+                mode = commercialOptions.Mode.ToString(),
+                demoSurfacesEnabled = commercialOptions.EnableDemoSurfaces,
+                swaggerEnabled = commercialOptions.EnableSwagger,
+                anonymousDiagnosticsEnabled = commercialOptions.EnableAnonymousDiagnostics,
+                claimRegisterVersion = commercialOptions.ClaimRegisterVersion
+            },
+            "commercial-startup",
+            null,
+            CancellationToken.None);
+
+        await startupAudit.WriteAsync(
+            "commercial.simulator.registration_denied",
+            new
+            {
+                connectorId = "SIMULATOR",
+                reason = "Commercial mode excludes simulator connector registration."
+            },
+            "commercial-startup",
+            null,
+            CancellationToken.None);
+    }
 }
 
 app.UseSerilogRequestLogging();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseSwagger();
-app.MapPrometheusScrapingEndpoint("/metrics");
-app.UseSwaggerUI();
+if (commercialOptions.CanExposeSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+if (commercialOptions.CanExposeAnonymousDiagnostics)
+{
+    app.MapPrometheusScrapingEndpoint("/metrics");
+}
 
 app.MapGet("/health", () => Results.Ok(new { service = "IsoSwitch", status = "ok" }));
 
@@ -235,7 +278,10 @@ app.MapGet("/health", () => Results.Ok(new { service = "IsoSwitch", status = "ok
 app.MapTransactionEndpoints();
 app.MapTransactionQueriesEndpoints();
 app.MapCatalogEndpoints();
-app.MapSimulatorEndpoints();
+if (commercialOptions.CanExposeDemoSurfaces)
+{
+    app.MapSimulatorEndpoints();
+}
 app.MapAuditEndpoints();
 
 app.Run();
