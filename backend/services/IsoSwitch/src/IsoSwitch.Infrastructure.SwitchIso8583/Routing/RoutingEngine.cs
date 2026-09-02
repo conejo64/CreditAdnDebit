@@ -1,16 +1,32 @@
+using BuildingBlocks.Commercial;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Catalog;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace IsoSwitch.Infrastructure.SwitchIso8583.Routing;
 
 public sealed class RoutingEngine
 {
     private readonly IsoSwitchDbContext _db;
+    private readonly CommercialOptions _commercialOptions;
 
     public RoutingEngine(IsoSwitchDbContext db)
+        : this(
+            db,
+            Options.Create(new CommercialOptions
+            {
+                Mode = CommercialMode.Demo,
+                EnableDemoSurfaces = true,
+                ClaimRegisterVersion = "legacy-demo"
+            }))
+    {
+    }
+
+    public RoutingEngine(IsoSwitchDbContext db, IOptions<CommercialOptions> commercialOptions)
     {
         _db = db;
+        _commercialOptions = commercialOptions.Value;
     }
 
     public async Task<(string ConnectorId, BinRangeCacheEntity? Bin)> ResolveAsync(int bin, string merchantId, decimal amount, CancellationToken ct)
@@ -25,7 +41,16 @@ public sealed class RoutingEngine
             .OrderBy(r => r.Priority)
             .FirstOrDefaultAsync(ct);
 
-        var connectorId = rule?.ConnectorId ?? "SIMULATOR";
-        return (connectorId, binInfo);
+        if (rule is not null)
+        {
+            return (rule.ConnectorId, binInfo);
+        }
+
+        if (_commercialOptions.IsCommercialMode)
+        {
+            throw new InvalidOperationException($"No commercial mode route resolved for BIN {bin}.");
+        }
+
+        return ("SIMULATOR", binInfo);
     }
 }

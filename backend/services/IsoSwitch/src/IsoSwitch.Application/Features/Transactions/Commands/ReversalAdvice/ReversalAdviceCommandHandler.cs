@@ -58,11 +58,15 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
 
         // 2. Load Original Transaction
         var originalTx = await _db.Transactions.FirstOrDefaultAsync(t => t.TraceId == request.OriginalTraceId, ct);
-        
-        var connectorId = originalTx?.ConnectorId ?? "SIMULATOR";
-        var originalMti = originalTx?.RequestMti ?? "0100";
-        var originalStan = originalTx?.Stan ?? "000000";
-        var originalTime = originalTx?.CreatedOn ?? DateTimeOffset.UtcNow;
+        if (originalTx is null)
+        {
+            throw new InvalidOperationException("Original transaction not found");
+        }
+
+        var connectorId = originalTx.ConnectorId;
+        var originalMti = originalTx.RequestMti;
+        var originalStan = originalTx.Stan;
+        var originalTime = originalTx.CreatedOn;
         
         // 3. Build Field 90
         var field90 = _field90Svc.BuildForConnector(connectorId, originalMti, originalStan, originalTime);
@@ -76,14 +80,11 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
         iso.Set(11, stan);
         iso.Set(37, Guid.NewGuid().ToString("N")[..12].ToUpperInvariant());
         
-        if (originalTx != null)
-        {
-            if (!string.IsNullOrWhiteSpace(originalTx.ProcessingCode)) iso.Set(3, originalTx.ProcessingCode);
-            if (!string.IsNullOrWhiteSpace(originalTx.Amount12)) iso.Set(4, originalTx.Amount12);
-            if (!string.IsNullOrWhiteSpace(originalTx.Currency)) iso.Set(49, originalTx.Currency);
-            if (!string.IsNullOrWhiteSpace(originalTx.TerminalId)) iso.Set(41, originalTx.TerminalId);
-            if (!string.IsNullOrWhiteSpace(originalTx.MerchantId)) iso.Set(42, originalTx.MerchantId);
-        }
+        if (!string.IsNullOrWhiteSpace(originalTx.ProcessingCode)) iso.Set(3, originalTx.ProcessingCode);
+        if (!string.IsNullOrWhiteSpace(originalTx.Amount12)) iso.Set(4, originalTx.Amount12);
+        if (!string.IsNullOrWhiteSpace(originalTx.Currency)) iso.Set(49, originalTx.Currency);
+        if (!string.IsNullOrWhiteSpace(originalTx.TerminalId)) iso.Set(41, originalTx.TerminalId);
+        if (!string.IsNullOrWhiteSpace(originalTx.MerchantId)) iso.Set(42, originalTx.MerchantId);
 
         iso.Set(90, field90);
         iso.Set(64, _hsmSvc.ComputeMacHex("REVADV"));
@@ -111,11 +112,8 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
 
         _db.Transactions.Add(tx);
 
-        if (originalTx != null)
-        {
-            originalTx.ReversalState = "REVERSAL_PENDING";
+        originalTx.ReversalState = "REVERSAL_PENDING";
             originalTx.UpdatedOn = now;
-        }
 
         await _db.SaveChangesAsync(ct);
 
@@ -151,12 +149,9 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
         tx.ResponseCode = rc;
         tx.UpdatedOn = DateTimeOffset.UtcNow;
 
-        if (originalTx != null)
-        {
-            originalTx.ReversalState = rc == "00" ? "REVERSAL_CONFIRMED" : "REVERSAL_FAILED";
+        originalTx.ReversalState = rc == "00" ? "REVERSAL_CONFIRMED" : "REVERSAL_FAILED";
             originalTx.ReversalConfirmedOn = rc == "00" ? DateTimeOffset.UtcNow : null;
             originalTx.UpdatedOn = DateTimeOffset.UtcNow;
-        }
 
         await _db.SaveChangesAsync(ct);
 
