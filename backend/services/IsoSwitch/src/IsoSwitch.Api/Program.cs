@@ -242,33 +242,19 @@ using (var scope = app.Services.CreateScope())
     await BinRoutingStore.InitializeFromDbAsync(audit, CancellationToken.None);
     await IsoSwitch.Api.Tcp.PanMapStore.InitializeFromDbAsync(audit, CancellationToken.None);
 
-    if (commercialOptions.IsCommercialMode)
+    var startupAuditRecords = IsoSwitch.Api.Background.CommercialStartupAudit.Build(commercialOptions);
+    if (startupAuditRecords.Count > 0)
     {
         var startupAudit = scope.ServiceProvider.GetRequiredService<AuditService>();
-        await startupAudit.WriteAsync(
-            "commercial.mode.started",
-            new
-            {
-                mode = commercialOptions.Mode.ToString(),
-                demoSurfacesEnabled = commercialOptions.EnableDemoSurfaces,
-                swaggerEnabled = commercialOptions.EnableSwagger,
-                anonymousDiagnosticsEnabled = commercialOptions.EnableAnonymousDiagnostics,
-                claimRegisterVersion = commercialOptions.ClaimRegisterVersion
-            },
-            "commercial-startup",
-            null,
-            CancellationToken.None);
-
-        await startupAudit.WriteAsync(
-            "commercial.simulator.registration_denied",
-            new
-            {
-                connectorId = "SIMULATOR",
-                reason = "Commercial mode excludes simulator connector registration."
-            },
-            "commercial-startup",
-            null,
-            CancellationToken.None);
+        foreach (var record in startupAuditRecords)
+        {
+            await startupAudit.WriteAsync(
+                record.EventType,
+                record.Payload,
+                record.CorrelationId,
+                null,
+                CancellationToken.None);
+        }
     }
 }
 

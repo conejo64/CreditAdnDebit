@@ -30,10 +30,24 @@ Chain strategy: feature-branch-chain
 - [x] 1.3 Add commercial config defaults to `backend/services/IsoSwitch/src/IsoSwitch.Api/appsettings.json`, `appsettings.Development.json`, and matching service configs for CardVault/IsoAudit.
 
 ## Phase 2: IsoSwitch Fail-Closed Runtime
-- [ ] 2.1 Update `backend/services/IsoSwitch/src/IsoSwitch.Api/Program.cs` to register/validate `CommercialOptions`, gate Swagger/demo surfaces, and skip `SimulatorConnector` in commercial mode.
-- [ ] 2.2 Remove simulator fallback in `backend/services/IsoSwitch/src/IsoSwitch.Application/Config/ConnectorRegistry.cs` and `backend/services/IsoSwitch/src/IsoSwitch.Infrastructure.SwitchIso8583/Routing/*.cs` so unresolved commercial routing fails before mutation.
-- [ ] 2.3 Gate `backend/services/IsoSwitch/src/IsoSwitch.Api/Endpoints/TransactionEndpoints.cs` and `SimulatorEndpoints.cs` so commercial `/api/iso/*` rejects simulator-backed PAN/Track2/PIN/EMV fields before handlers.
-- [ ] 2.4 Add startup/audit records in `backend/services/IsoSwitch/src/IsoSwitch.Api/Background/*` or `Observability.cs` for denied simulator registration and commercial-mode startup.
+- [x] 2.1 Update `backend/services/IsoSwitch/src/IsoSwitch.Api/Program.cs` to register/validate `CommercialOptions`, gate Swagger/demo surfaces, and skip `SimulatorConnector` in commercial mode.
+- [x] 2.2 Remove simulator fallback in `backend/services/IsoSwitch/src/IsoSwitch.Application/Config/ConnectorRegistry.cs` and `backend/services/IsoSwitch/src/IsoSwitch.Infrastructure.SwitchIso8583/Routing/*.cs` so unresolved commercial routing fails before mutation.
+- [x] 2.3 Gate `backend/services/IsoSwitch/src/IsoSwitch.Api/Endpoints/TransactionEndpoints.cs` and `SimulatorEndpoints.cs` so commercial `/api/iso/*` rejects simulator-backed PAN/Track2/PIN/EMV fields before handlers.
+- [x] 2.4 Add startup/audit records in `backend/services/IsoSwitch/src/IsoSwitch.Api/Background/*` or `Observability.cs` for denied simulator registration and commercial-mode startup.
+
+### Phase 2 verification
+`dotnet test backend/services/IsoSwitch/tests/IsoSwitch.Tests/IsoSwitch.Tests.csproj` — **99/99 pass**.
+Each gate is covered in both directions, so demo mode is proven to keep the behaviour commercial mode
+refuses: `CommercialMode_WithoutRoutingRule_FailsBeforeSimulatorFallback` against
+`DemoMode_WithoutRoutingRule_PreservesSimulatorFallback`,
+`CommercialMode_UnregisteredConnector_DoesNotFallbackToSimulator` against
+`DemoMode_UnregisteredConnector_PreservesSimulatorFallback`, and
+`CommercialMode_AuthorizeWithSensitiveFields_IsRejectedBeforeHandler` against
+`DemoMode_AuthorizeWithSyntheticFields_AllowsHandler`.
+
+2.4 was implemented inline in `Program.cs` and could not be covered without booting the API, so the
+record-composition rules moved to `Background/CommercialStartupAudit.cs` — the location this task
+already called for. `Program.cs` now writes whatever that returns.
 
 ## Phase 3: Disclosure, UI, and Docs
 - [ ] 3.1 Add policy-protected sanitized disclosure endpoints in `backend/services/CardVault/src/CardVault.Api/Program.cs` and `backend/services/IsoAudit/src/IsoAudit.Api/Program.cs`.
