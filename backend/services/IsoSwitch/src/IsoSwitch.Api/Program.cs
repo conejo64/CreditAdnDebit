@@ -56,6 +56,11 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddCommercialOptions();
 var commercialOptions = builder.Configuration.GetSection(CommercialOptions.Section).Get<CommercialOptions>() ?? new CommercialOptions();
+// The governed claim register is still empty: its entries carry owner, reviewer and
+// evidence metadata that only a governance review can supply, and the spec forbids
+// disclosing a capability as verified without evidence. Publishing the running mode
+// with no claims is the truthful state until that review lands.
+builder.Services.AddSingleton<IClaimRegister>(_ => new StaticClaimRegister([]));
 // ADR-1: TokenizationOptions with ValidateOnStart + custom placeholder validator
 builder.Services.AddOptions<TokenizationOptions>()
     .BindConfiguration(TokenizationOptions.Section)
@@ -284,6 +289,9 @@ if (commercialOptions.CanExposeDemoSurfaces)
     app.MapSimulatorEndpoints();
 }
 app.MapAuditEndpoints();
+// Mapped in every mode on purpose: a client cannot ask what mode it is talking to if
+// the answer is itself gated on that mode.
+app.MapCommercialDisclosureEndpoints();
 
 app.Run();
 
