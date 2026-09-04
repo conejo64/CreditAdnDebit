@@ -5,6 +5,7 @@ import { SwitchService } from './switch.service';
 import { CardService } from '../issuer/cards/card.service';
 import { CustomerService } from '../issuer/customers/customer.service';
 import { NotificationService } from '../../core/notification.service';
+import { CommercialGovernanceService } from '../../core/commercial-governance.service';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
@@ -23,6 +24,28 @@ import { catchError } from 'rxjs/operators';
           <p class="text-muted mt-1">Inyecte mensajería ISO8583 virtual hacia el Switch para validar reglas de ruteo y autorizaciones en la bóveda de saldo.</p>
         </div>
       </div>
+
+      <!--
+        The switch refuses simulator-backed payloads on /iso/* in commercial mode, so
+        the form is withheld rather than offered and rejected. Stating the reason is
+        the point: an operator who only sees a missing screen cannot tell a locked
+        capability apart from a broken one.
+      -->
+      <div *ngIf="governance.isCommercial()" class="card p-4 mb-4" data-testid="simulator-unavailable">
+        <div class="d-flex align-items-start gap-3">
+          <span class="material-symbols-rounded" style="font-size: 28px; color:#f59e0b">lock</span>
+          <div>
+            <h3 class="m-0 text-main">Simulador no disponible en modo comercial</h3>
+            <p class="text-muted mt-2 mb-0">{{ governance.unavailabilityMessage('switch.simulator') }}</p>
+            <p class="text-muted mt-2 mb-0">
+              Este despliegue rechaza mensajería simulada contra los endpoints reales de autorización.
+              Utilice un ambiente de demostración o certificación para ejecutar pruebas de canal.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <ng-container *ngIf="governance.canShowDemoSurfaces()">
 
       <div class="row">
          <div class="col-6">
@@ -128,6 +151,7 @@ import { catchError } from 'rxjs/operators';
             </div>
          </div>
       </div>
+      </ng-container>
     </div>
   `,
    styles: [`
@@ -158,6 +182,8 @@ export class SimulatorComponent {
    private cardService = inject(CardService);
    private customerService = inject(CustomerService);
    private notifications = inject(NotificationService);
+   // Public: the template decides what to render from it.
+   readonly governance = inject(CommercialGovernanceService);
 
    source: 'POS' | 'ATM' = 'POS';
    panToken: string = '';
@@ -173,6 +199,7 @@ export class SimulatorComponent {
    terminalLog: any[] = [];
 
    ngOnInit() {
+      this.governance.load().subscribe();
       this.loadInitialData();
    }
 
@@ -252,6 +279,14 @@ export class SimulatorComponent {
    }
 
    sendSimulation() {
+      // The template already withholds the form, so reaching here means something
+      // bypassed it. Refuse anyway: this posts to the real authorization endpoint,
+      // and the cost of the check is nothing next to the cost of being wrong.
+      if (this.governance.isCommercial()) {
+        this.notifications.warning(this.governance.unavailabilityMessage('switch.simulator'));
+        return;
+      }
+
       if (!this.panToken || !this.amount || !this.bin) {
         this.notifications.warning('Falta BIN, PAN/Token o Monto');
         return;
