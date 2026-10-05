@@ -23,6 +23,15 @@ public sealed class BillingService
 
     public async Task<StatementEntity> GenerateStatementAsync(Guid accountId, DateTime cycleStart, DateTime cycleEnd, DateTime statementDate, DateTime? dueDateOverride, CancellationToken ct)
     {
+        // Service boundary: every incoming DateTime is persisted to `timestamp with time zone`, which
+        // Npgsql only accepts as Kind=Utc. A date-only request body ("2025-01-31") arrives as
+        // Kind=Unspecified and is a calendar date, so it keeps its wall-clock value and is relabelled
+        // UTC; a Local value is an instant and is converted. See UtcCalendarDate.
+        cycleStart = UtcCalendarDate.Normalize(cycleStart);
+        cycleEnd = UtcCalendarDate.Normalize(cycleEnd);
+        statementDate = UtcCalendarDate.Normalize(statementDate);
+        dueDateOverride = UtcCalendarDate.Normalize(dueDateOverride);
+
         var acc = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, ct);
         if (acc is null) throw new InvalidOperationException("Account not found");
         if (acc.AccountType != AccountType.Credit) throw new InvalidOperationException("Statements are only supported for credit accounts");
