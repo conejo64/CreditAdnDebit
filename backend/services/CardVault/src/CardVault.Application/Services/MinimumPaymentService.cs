@@ -22,8 +22,9 @@ public sealed class MinimumPaymentService
 
     public decimal CalculateMinimum(StatementEntity st, MinimumPaymentPolicyEntity p)
     {
-        // If older statements, initialize buckets approx (entity mutation stays in the service layer)
-        if (st.PrincipalDue == 0 && st.InterestDue == 0 && st.FeesDue == 0)
+        // Older statements were generated without buckets: approximate them once. A statement that
+        // has received a payment has real buckets, and all-zero there means fully paid, not legacy.
+        if (st.PrincipalDue == 0 && st.InterestDue == 0 && st.FeesDue == 0 && st.PaidAmount == 0)
         {
             st.InterestDue = st.InterestAccrued;
             st.FeesDue = st.LateFeeAmount;
