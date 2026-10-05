@@ -20,16 +20,28 @@ public sealed class MinimumPaymentService
         return p ?? new MinimumPaymentPolicyEntity { Code = "DEFAULT", IsDefault = true };
     }
 
-    public decimal CalculateMinimum(StatementEntity st, MinimumPaymentPolicyEntity p)
+    /// <summary>
+    /// Older statements were generated without buckets: approximate them once from the accrued
+    /// figures. A statement that has received a payment has real buckets, and all-zero there means
+    /// fully paid, not legacy. "Received a payment" is read from both records: PaidAmount (set when
+    /// the payment is posted) and PaidTo* (set when the allocator consumed the buckets), because the
+    /// allocator runs before the payment is posted. Callers that are about to record a payment must
+    /// invoke this BEFORE incrementing <see cref="StatementEntity.PaidAmount"/>.
+    /// </summary>
+    public void ApproximateLegacyBuckets(StatementEntity st)
     {
-        // Older statements were generated without buckets: approximate them once. A statement that
-        // has received a payment has real buckets, and all-zero there means fully paid, not legacy.
-        if (st.PrincipalDue == 0 && st.InterestDue == 0 && st.FeesDue == 0 && st.PaidAmount == 0)
+        var neverPaid = st.PaidAmount == 0 && st.PaidToPrincipal == 0 && st.PaidToInterest == 0 && st.PaidToFees == 0;
+        if (st.PrincipalDue == 0 && st.InterestDue == 0 && st.FeesDue == 0 && neverPaid)
         {
             st.InterestDue = st.InterestAccrued;
             st.FeesDue = st.LateFeeAmount;
             st.PrincipalDue = Math.Max(0, st.StatementBalance - st.InterestDue - st.FeesDue);
         }
+    }
+
+    public decimal CalculateMinimum(StatementEntity st, MinimumPaymentPolicyEntity p)
+    {
+        ApproximateLegacyBuckets(st);
 
         // Delegate pure arithmetic to Domain calculator (primitives only — no EF types cross the boundary)
         return MinimumPaymentCalculator.Calculate(

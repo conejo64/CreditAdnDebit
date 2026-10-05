@@ -250,6 +250,10 @@ public sealed class BillingService
             StatementId = null
         });
 
+        // A legacy statement has no buckets yet; materialize them from the accrued figures before the
+        // payment is recorded, otherwise the all-zero buckets below would read as "fully paid".
+        _minPay.ApproximateLegacyBuckets(st);
+
         st.PaidAmount += amount;
 
         // Totals follow the buckets as they stand now. When the caller has already allocated the

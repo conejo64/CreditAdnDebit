@@ -223,6 +223,61 @@ public sealed class HoldExclusionAndPaymentCycleTests : IDisposable
         returned.MinimumPayment.Should().Be(10m);
     }
 
+    [Fact(DisplayName = "The first payment on a legacy bucket-less statement keeps what is still owed")]
+    public async Task First_payment_on_legacy_statement_does_not_zero_the_totals()
+    {
+        // Statements generated before buckets existed carry only InterestAccrued / StatementBalance.
+        var accountId = await SeedCreditAccountAsync();
+        var legacy = new StatementEntity
+        {
+            Id = Guid.NewGuid(),
+            AccountId = accountId,
+            CycleStart = Jan.Start,
+            CycleEnd = Jan.End,
+            StatementDate = Jan.StatementDate,
+            DueDate = Jan.StatementDate.AddDays(20),
+            StatementBalance = 300m,
+            NewBalance = 300m,
+            TotalPaymentDue = 300m,
+            InterestAccrued = 20m,
+            PrincipalDue = 0m,
+            InterestDue = 0m,
+            FeesDue = 0m,
+            PaidAmount = 0m
+        };
+        _db.Statements.Add(legacy);
+        await _db.SaveChangesAsync();
+
+        await _billing.ApplyStatementPaymentAsync(legacy.Id, 50m, On(2025, 2, 5), CancellationToken.None);
+
+        var persisted = await _db.Statements.AsNoTracking().FirstAsync(x => x.Id == legacy.Id);
+        persisted.PaidAmount.Should().Be(50m);
+        persisted.InterestDue.Should().Be(20m, "legacy buckets are approximated from the accrued figures");
+        persisted.PrincipalDue.Should().Be(280m);
+        persisted.TotalPaymentDue.Should().Be(300m, "a partial payment must not persist the statement as owing nothing");
+        persisted.NewBalance.Should().Be(300m);
+        persisted.MinimumPayment.Should().Be(34m, "20 interest + max(10, 5 % of 280)");
+    }
+
+    [Fact(DisplayName = "A legacy-shaped statement that already received a payment is treated as paid, not re-approximated")]
+    public void Legacy_shape_with_payment_is_not_re_approximated()
+    {
+        var st = new StatementEntity
+        {
+            StatementBalance = 300m,
+            InterestAccrued = 20m,
+            PrincipalDue = 0m,
+            InterestDue = 0m,
+            FeesDue = 0m,
+            PaidAmount = 300m
+        };
+
+        var minimum = _minPay.CalculateMinimum(st, new MinimumPaymentPolicyEntity { Code = "DEFAULT", IsDefault = true });
+
+        minimum.Should().Be(0m);
+        st.InterestDue.Should().Be(0m, "PaidAmount > 0 means the buckets are real and fully paid");
+    }
+
     [Fact(DisplayName = "A full payment leaves zero totals and a zero minimum payment")]
     public async Task Full_payment_zeroes_totals_and_minimum()
     {
