@@ -37,9 +37,10 @@ public sealed class BillingService
         var cycleStartDt = cycleStart;
         var cycleEndDt = cycleEnd;
 
-        // Previous balance: sum all ledger before cycle
+        // Previous balance: billable ledger before the cycle. Deferred principal is owed but is
+        // billed through installments, so it never enters a statement balance directly.
         var prevBalance = await _db.LedgerEntries.AsNoTracking()
-            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStartDt)
+            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStartDt && x.Type != LedgerEntryType.DeferredPrincipal)
             .SumAsync(x => x.Amount, ct);
 
         // Cycle entries not yet assigned to a statement
@@ -58,27 +59,33 @@ public sealed class BillingService
         var fees = cycleEntries.Where(x => x.Type == LedgerEntryType.Fee).Sum(x => x.Amount);
         var interest = cycleEntries.Where(x => x.Type == LedgerEntryType.Interest).Sum(x => x.Amount);
 
-        // v66 - Installments due in this cycle
+        // Installments due in this cycle. Each one is billed once: its principal moves from the
+        // DeferredPrincipal bucket into an Installment ledger debit, and its plan interest is posted
+        // as an Interest entry so it lands in the interest bucket and never compounds through daily accrual.
+        var activePlans = await _db.InstallmentPlans
+            .Where(p => p.AccountId == accountId && p.Status == InstallmentPlanStatus.Active)
+            .ToListAsync(ct);
+        var activePlanIds = activePlans.Select(p => p.Id).ToList();
+
         var dueInstallments = await _db.AmortizationSchedules
-            .Where(x => x.Status == InstallmentStatus.Pending && x.DueDate <= cycleEndDt)
-            .Join(_db.InstallmentPlans.Where(p => p.AccountId == accountId),
-                s => s.PlanId,
-                p => p.Id,
-                (s, p) => s)
+            .Where(x => x.Status == InstallmentStatus.Pending && x.DueDate <= cycleEndDt && activePlanIds.Contains(x.PlanId))
+            .OrderBy(x => x.DueDate).ThenBy(x => x.InstallmentNumber)
             .ToListAsync(ct);
 
-        var installmentDue = dueInstallments.Sum(x => x.TotalInstallmentAmount);
+        var installmentPrincipalDue = dueInstallments.Sum(x => x.PrincipalAmount);
+        var installmentInterestDue = dueInstallments.Sum(x => x.InterestAmount);
+        interest += installmentInterestDue;
 
         // Average daily balance excluding interest ledger entries (for display)
         // Delegate pure computation to Domain calculator — map entities to primitives at this boundary
-        var nonInterest = cycleEntries.Where(x => x.Type != LedgerEntryType.Interest).ToList();
+        var nonInterest = cycleEntries.Where(x => x.Type != LedgerEntryType.Interest && x.Type.IsBillable()).ToList();
         var adbEntries = nonInterest
             .Select(e => (e.PostedOn.Date, e.Amount))
             .ToList();
         var adb = AverageDailyBalanceCalculator.Compute(prevBalance, adbEntries, cycleStart, cycleEnd);
         var interestDays = (cycleEnd.Date - cycleStart.Date).Days + 1;
 
-        var newBalance = prevBalance + purchases + payments + fees + interest + installmentDue;
+        var newBalance = prevBalance + purchases + payments + fees + interest + installmentPrincipalDue;
 
         var st = new StatementEntity
         {
@@ -126,23 +133,81 @@ public sealed class BillingService
             });
         }
 
-        // v66 - Add installments as lines and update status
+        // Bill each due installment: ledger entries dated at the cycle close and attached to this
+        // statement, plus the matching statement lines. The DeferredPrincipal release has no line of
+        // its own; it only keeps the ledger exposure constant while principal becomes billable.
+        var billedOn = new DateTimeOffset(DateTime.SpecifyKind(cycleEnd, DateTimeKind.Utc), TimeSpan.Zero);
+        var plansById = activePlans.ToDictionary(p => p.Id);
+
         foreach (var inst in dueInstallments)
         {
             inst.Status = InstallmentStatus.Invoiced;
             inst.BilledStatementId = st.Id;
             inst.BilledOn = DateTimeOffset.UtcNow;
 
+            var plan = plansById[inst.PlanId];
+            plan.RemainingInstallments = Math.Max(0, plan.RemainingInstallments - 1);
+            if (plan.RemainingInstallments == 0) plan.Status = InstallmentPlanStatus.Completed;
+
+            var label = $"CUOTA {inst.InstallmentNumber}/{plan.TotalInstallments} - {plan.Description}";
+
+            _db.LedgerEntries.Add(new LedgerEntryEntity
+            {
+                Id = Guid.NewGuid(),
+                AccountId = accountId,
+                Type = LedgerEntryType.DeferredPrincipal,
+                Amount = -inst.PrincipalAmount,
+                Description = $"DEFERRED PRINCIPAL RELEASE - {label}",
+                PostedOn = billedOn,
+                StatementId = st.Id
+            });
+
+            var installmentEntry = new LedgerEntryEntity
+            {
+                Id = Guid.NewGuid(),
+                AccountId = accountId,
+                Type = LedgerEntryType.Installment,
+                Amount = inst.PrincipalAmount,
+                Description = label,
+                PostedOn = billedOn,
+                StatementId = st.Id
+            };
+            _db.LedgerEntries.Add(installmentEntry);
             _db.StatementLines.Add(new StatementLineEntity
             {
                 Id = Guid.NewGuid(),
                 StatementId = st.Id,
-                LedgerEntryId = null,
-                PostedOn = inst.DueDate,
-                Type = LedgerEntryType.Fee,
-                Amount = inst.TotalInstallmentAmount,
-                Description = $"CUOTA {inst.InstallmentNumber} - Plan Diferido"
+                LedgerEntryId = installmentEntry.Id,
+                PostedOn = billedOn,
+                Type = LedgerEntryType.Installment,
+                Amount = inst.PrincipalAmount,
+                Description = label
             });
+
+            if (inst.InterestAmount > 0m)
+            {
+                var interestEntry = new LedgerEntryEntity
+                {
+                    Id = Guid.NewGuid(),
+                    AccountId = accountId,
+                    Type = LedgerEntryType.Interest,
+                    Amount = inst.InterestAmount,
+                    Description = $"INTEREST - {label}",
+                    PostedOn = billedOn,
+                    StatementId = st.Id
+                };
+                _db.LedgerEntries.Add(interestEntry);
+                _db.StatementLines.Add(new StatementLineEntity
+                {
+                    Id = Guid.NewGuid(),
+                    StatementId = st.Id,
+                    LedgerEntryId = interestEntry.Id,
+                    PostedOn = billedOn,
+                    Type = LedgerEntryType.Interest,
+                    Amount = inst.InterestAmount,
+                    Description = $"INTEREST - {label}"
+                });
+            }
         }
 
         await _db.SaveChangesAsync(ct);

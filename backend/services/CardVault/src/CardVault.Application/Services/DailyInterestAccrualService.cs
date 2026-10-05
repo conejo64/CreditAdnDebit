@@ -36,9 +36,12 @@ public sealed class DailyInterestAccrualService
 
         var policy = await _policies.GetOrDefaultAsync(acc.ProductCode, ct);
 
-        // prev balance before start date (exclude interest)
+        // prev balance before start date (exclude interest and not-yet-billed deferred principal)
         var prevBalance = await _db.LedgerEntries.AsNoTracking()
-            .Where(x => x.AccountId == accountId && x.PostedOn < from.ToDateTime(TimeOnly.MinValue) && x.Type != LedgerEntryType.Interest)
+            .Where(x => x.AccountId == accountId &&
+                        x.PostedOn < from.ToDateTime(TimeOnly.MinValue) &&
+                        x.Type != LedgerEntryType.Interest &&
+                        x.Type != LedgerEntryType.DeferredPrincipal)
             .SumAsync(x => x.Amount, ct);
 
         var graceDays = (prevBalance <= 0) ? Math.Max(0, policy.PurchaseGraceDays) : 0;
@@ -55,11 +58,14 @@ public sealed class DailyInterestAccrualService
                 .AnyAsync(x => x.AccountId == accountId && x.AccrualDate == d && x.Segment == InterestSegment.Purchase, ct);
             if (exists) continue;
 
-            // End-of-day balance: sum non-interest ledger up to end of day
+            // End-of-day balance: billable non-interest ledger up to end of day. Deferred principal
+            // is excluded until the billing engine releases it as an Installment; a 0 % plan therefore
+            // accrues nothing while deferred, and any plan only accrues on billed, unpaid installments.
             var eod = await _db.LedgerEntries.AsNoTracking()
                 .Where(x => x.AccountId == accountId &&
                             x.PostedOn <= d.ToDateTime(TimeOnly.MaxValue) &&
-                            x.Type != LedgerEntryType.Interest)
+                            x.Type != LedgerEntryType.Interest &&
+                            x.Type != LedgerEntryType.DeferredPrincipal)
                 .SumAsync(x => x.Amount, ct);
 
             var balanceBase = Math.Max(0, eod);
