@@ -17,13 +17,16 @@ public sealed class HoldMaintenanceService
     }
 
     /// <summary>
-    /// Expires Active holds with ExpiresOn <= now. Posts a reversing ledger entry to release the hold amount.
-    /// Returns number of holds expired.
+    /// Expires Active and PartiallyCaptured holds whose ExpiresOn is at or before <paramref name="now"/>.
+    /// The pending amount is released through the hold status; the ledger only receives a shadow
+    /// <see cref="LedgerEntryType.AuthorizationHold"/> entry that nets the original hold entry to zero,
+    /// so the posted balance is never affected. Returns the number of holds expired.
     /// </summary>
     public async Task<int> ExpireDueHoldsAsync(DateTimeOffset now, CancellationToken ct)
     {
         var due = await _db.AuthorizationHolds
-            .Where(x => x.Status == HoldStatus.Active || x.Status == HoldStatus.PartiallyCaptured && x.ExpiresOn <= now)
+            .Where(x => (x.Status == HoldStatus.Active || x.Status == HoldStatus.PartiallyCaptured)
+                        && x.ExpiresOn <= now)
             .Take(500)
             .ToListAsync(ct);
 
@@ -35,7 +38,7 @@ public sealed class HoldMaintenanceService
             {
                 Id = Guid.NewGuid(),
                 AccountId = h.AccountId,
-                Type = LedgerEntryType.Reversal,
+                Type = LedgerEntryType.AuthorizationHold,
                 Amount = -Math.Abs(h.Amount - h.CapturedAmount),
                 Description = $"HOLD EXPIRED {h.Network} STAN:{h.Stan} RRN:{h.Rrn}",
                 PostedOn = now,

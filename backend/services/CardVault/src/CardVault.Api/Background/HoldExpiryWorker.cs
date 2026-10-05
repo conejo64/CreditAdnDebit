@@ -3,7 +3,7 @@ using CardVault.Application.Services;
 namespace CardVault.Api.Background;
 
 /// <summary>
-/// Periodically scans and expires active holds where ExpiresOn < now.
+/// Periodically scans and expires Active/PartiallyCaptured holds where ExpiresOn <= now.
 /// For demo: runs every 60 seconds.
 /// In production: run via scheduled job (Hangfire/Quartz/Kubernetes CronJob).
 /// </summary>
