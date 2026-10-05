@@ -194,6 +194,38 @@ public sealed class HoldServiceTests : IDisposable
         available.AvailableCredit.Should().Be(700m, "available credit = limit - active holds");
     }
 
+    [Fact]
+    public async Task AuthorizeAsync_BlockedCard_ShouldDeclineAndCreateNoHold()
+    {
+        var (account, card) = await SeedAccountAsync(creditLimit: 1000m);
+        card.Status = CardStatus.Blocked;
+        await _db.SaveChangesAsync();
+
+        var act = () => _sut.AuthorizeAsync(account.Id, card.Id, "VISA", "0100", "BLK001", "RRNBLK001", null,
+            "MERCHANT01", "5411", null, null, 100m, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("AUTH_DECLINED:CARD_BLOCKED");
+        _db.AuthorizationHolds.Count(x => x.AccountId == account.Id).Should().Be(0);
+        _db.LedgerEntries.Count(x => x.AccountId == account.Id).Should().Be(0, "a declined authorization posts nothing");
+
+        var audits = await _audit.LatestAsync(10, CancellationToken.None);
+        audits.Should().Contain(a => a.EventType == "risk.auth.declined", "the decline must still be audited");
+    }
+
+    [Fact]
+    public async Task AuthorizeAsync_ClosedAccount_ShouldDecline()
+    {
+        var (account, _) = await SeedAccountAsync(creditLimit: 1000m);
+        account.Status = AccountStatus.Closed;
+        await _db.SaveChangesAsync();
+
+        var act = () => AuthorizeAsync(account.Id, stan: "CLS001", rrn: "RRNCLS001");
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("AUTH_DECLINED:ACCOUNT_CLOSED");
+    }
+
     // ─────────────────────────────────────────────────────────
     // CaptureAsync
     // ─────────────────────────────────────────────────────────

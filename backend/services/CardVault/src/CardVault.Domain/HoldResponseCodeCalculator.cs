@@ -17,11 +17,30 @@ public static class HoldResponseCodeCalculator
 
         // Common ISO8583 DE39 mapping (demo):
         // 00 Approved (handled elsewhere)
+        // 05 Do not honor
+        // 14 Invalid card number (card unknown, not this account's, cancelled, unreadable expiry)
         // 51 Insufficient funds / credit
-        // 65 Activity limit exceeded (velocity)
+        // 54 Expired card
         // 59 Suspected fraud
-        // 62 Restricted card (policy/MCC)
+        // 62 Restricted card (card or account blocked / not yet active / closed, policy, MCC)
+        // 65 Activity limit exceeded (velocity)
         var r = reason.Trim().ToUpperInvariant();
+
+        // Card and account state (RiskDecisionService step 0) — exact reasons first so the
+        // substring heuristics below cannot reclassify them.
+        switch (r)
+        {
+            case "CARD_EXPIRED": return "54";
+            case "CARD_NOT_FOUND":
+            case "CARD_ACCOUNT_MISMATCH":
+            case "CARD_CANCELLED":
+            case "CARD_EXPIRY_INVALID": return "14";
+            case "CARD_BLOCKED":
+            case "CARD_NOT_ACTIVE":
+            case "ACCOUNT_BLOCKED":
+            case "ACCOUNT_CLOSED": return "62";
+            case "ACCOUNT_DELINQUENT": return "05";
+        }
 
         if (r.Contains("INSUFFICIENT") || r.Contains("NO_FUNDS") || r.Contains("AVAILABLE_CREDIT")) return "51";
         if (r.StartsWith("VELOCITY") || r.Contains("VELOCITY")) return "65";

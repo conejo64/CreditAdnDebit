@@ -1,6 +1,7 @@
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
+using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Infrastructure.Persistence.Switch;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,7 +24,25 @@ public sealed class RiskDecisionService
 
     public async Task<RiskDecision> DecideAuthAsync(Guid accountId, Guid? cardId, decimal amount, string? mcc, string? countryCode, string? pinBlock, CancellationToken ct)
     {
-        // 0) PIN check (if pinBlock provided)
+        // 0) Account and card state. Checked before anything else: a closed account or a blocked,
+        //    cancelled, not-yet-active or expired card is never authorized, whatever the amount, and
+        //    must not burn PIN retries or velocity counters on the way out.
+        var acct = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, ct);
+        if (acct is null) return new(false, "ACCOUNT_NOT_FOUND");
+
+        var accountState = CheckAccountState(acct);
+        if (accountState is not null) return accountState;
+
+        // Card checks apply only when the caller identifies a card; card-less authorizations
+        // (account-level flows) keep today's contract and are governed by the account state alone.
+        if (cardId.HasValue)
+        {
+            var card = await _db.Cards.AsNoTracking().FirstOrDefaultAsync(x => x.Id == cardId.Value, ct);
+            var cardState = CheckCardState(card, accountId, DateTimeOffset.UtcNow);
+            if (cardState is not null) return cardState;
+        }
+
+        // 0b) PIN check (if pinBlock provided)
         if (cardId.HasValue && !string.IsNullOrWhiteSpace(pinBlock))
         {
             var pinOk = await _pin.VerifyPinAsync(cardId.Value, pinBlock, ct);
@@ -51,9 +70,6 @@ public sealed class RiskDecisionService
         }
 
         // 3) Available credit / policy
-        var acct = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, ct);
-        if (acct is null) return new(false, "ACCOUNT_NOT_FOUND");
-
         var pol = await _db.CreditPolicies.AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == acct.ProductCode, ct);
 
         var available = await _available.GetAsync(accountId, ct);
@@ -117,6 +133,50 @@ public sealed class RiskDecisionService
         }
 
         return new(true, "OK");
+    }
+
+    /// <summary>
+    /// Only an <see cref="AccountStatus.Active"/> account may authorize. Delinquent accounts are
+    /// declined as well: no credit policy in the codebase grants them authorization, and
+    /// <c>ThreeDsService</c> already treats every non-Active account as not transactable.
+    /// </summary>
+    private static RiskDecision? CheckAccountState(CardAccountEntity account) => account.Status switch
+    {
+        AccountStatus.Active => null,
+        AccountStatus.Blocked => new(false, "ACCOUNT_BLOCKED"),
+        AccountStatus.Closed => new(false, "ACCOUNT_CLOSED"),
+        AccountStatus.Delinquent => new(false, "ACCOUNT_DELINQUENT"),
+        _ => new(false, "ACCOUNT_NOT_ACTIVE")
+    };
+
+    /// <summary>
+    /// The card must exist, belong to the account being charged, be <see cref="CardStatus.Active"/>
+    /// and have a readable expiry that has not passed. An unreadable expiry fails closed.
+    /// </summary>
+    private static RiskDecision? CheckCardState(CardEntity? card, Guid accountId, DateTimeOffset asOf)
+    {
+        if (card is null) return new(false, "CARD_NOT_FOUND");
+        if (card.AccountId != accountId) return new(false, "CARD_ACCOUNT_MISMATCH");
+
+        switch (card.Status)
+        {
+            case CardStatus.Active:
+                break;
+            case CardStatus.Blocked:
+                return new(false, "CARD_BLOCKED");
+            case CardStatus.Cancelled:
+                return new(false, "CARD_CANCELLED");
+            case CardStatus.Expired:
+                return new(false, "CARD_EXPIRED");
+            default:
+                // Created, Personalized, Printed, Delivered: issued but not yet activated.
+                return new(false, "CARD_NOT_ACTIVE");
+        }
+
+        if (!CardExpiry.TryGetExpiredFrom(card.ExpiryYyMm, out var expiredFrom)) return new(false, "CARD_EXPIRY_INVALID");
+        if (asOf >= expiredFrom) return new(false, "CARD_EXPIRED");
+
+        return null;
     }
 }
 
