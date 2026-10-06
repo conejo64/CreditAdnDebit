@@ -3,6 +3,7 @@ using CardVault.Application.Features.Issuer.Queries;
 using CardVault.Application.Contracts;
 using CardVault.Application.Services;
 using CardVault.Domain;
+using CardVault.Infrastructure.Persistence.Catalog;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
@@ -23,7 +24,10 @@ public sealed class IssuerHandlerTests : IDisposable
         _db = TestDbContextFactory.Create();
         _auditService = new AuditService(_db);
         _customerService = new CustomerService(_db);
-        _issuerService = new IssuerService(_db, _auditService);
+        _issuerService = new IssuerService(_db, _auditService, TestVaultCrypto.Create());
+
+        _db.BinRanges.Add(new BinRangeEntity { BinStart = 400000, BinEnd = 499999, Brand = "VISA", Product = "CREDIT", Enabled = true });
+        _db.SaveChanges();
     }
 
     public void Dispose() => _db.Dispose();
@@ -129,7 +133,7 @@ public sealed class IssuerHandlerTests : IDisposable
             customer.Id, AccountType.Credit, "VISA", 3000m, CancellationToken.None);
 
         var handler = new IssueCardCommandHandler(_issuerService);
-        var request = new IssueCardRequest(account.Id, "411111", "4111111111111111", "2810");
+        var request = new IssueCardRequest(account.Id, "411111", "2810");
 
         // Act
         var result = await handler.Handle(new IssueCardCommand(request), CancellationToken.None);
@@ -139,6 +143,41 @@ public sealed class IssuerHandlerTests : IDisposable
         // Created result includes the card projection
         var createdResult = result as IStatusCodeHttpResult;
         createdResult?.StatusCode.Should().Be(201);
+    }
+
+    [Fact]
+    public async Task IssueCardCommand_ResponseExposesOnlyTokenAndMaskedPan()
+    {
+        var customer = await _customerService.CreateAsync(
+            "Card Handler User", "CH002", "ch2@t.com", "000",
+            "CEDULA", "M", "", "", "", "", "", CancellationToken.None);
+        var account = await _issuerService.CreateAccountAsync(
+            customer.Id, AccountType.Credit, "VISA", 3000m, CancellationToken.None);
+        var handler = new IssueCardCommandHandler(_issuerService);
+
+        var result = await handler.Handle(new IssueCardCommand(new IssueCardRequest(account.Id, "411111", "2810")), CancellationToken.None);
+
+        var created = result.Should().BeAssignableTo<IValueHttpResult>().Subject;
+        var json = System.Text.Json.JsonSerializer.Serialize(created.Value);
+        json.Should().Contain("\"PanToken\":\"tok_");
+        json.Should().MatchRegex(@"""MaskedPan"":""411111\*{6}[0-9]{4}""");
+        json.Should().NotMatchRegex("[0-9]{16}", "a full PAN must never leave the service");
+    }
+
+    [Fact]
+    public async Task IssueCardCommand_UnknownBin_ShouldReturnBadRequestWithoutIssuing()
+    {
+        var customer = await _customerService.CreateAsync(
+            "Card Handler User", "CH003", "ch3@t.com", "000",
+            "CEDULA", "M", "", "", "", "", "", CancellationToken.None);
+        var account = await _issuerService.CreateAccountAsync(
+            customer.Id, AccountType.Credit, "VISA", 3000m, CancellationToken.None);
+        var handler = new IssueCardCommandHandler(_issuerService);
+
+        var result = await handler.Handle(new IssueCardCommand(new IssueCardRequest(account.Id, "611111", "2810")), CancellationToken.None);
+
+        (result as IStatusCodeHttpResult)!.StatusCode.Should().Be(400);
+        _db.Cards.Should().BeEmpty();
     }
 
     #endregion
@@ -221,7 +260,7 @@ public sealed class IssuerHandlerTests : IDisposable
         var account = await _issuerService.CreateAccountAsync(
             customer.Id, AccountType.Credit, "VISA", 5000m, CancellationToken.None);
         return await _issuerService.IssueCardAsync(
-            account.Id, "411111", "4111111111111111", "2812", CancellationToken.None);
+            account.Id, "411111", "2812", CancellationToken.None);
     }
 
     #endregion
