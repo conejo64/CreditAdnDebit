@@ -141,6 +141,42 @@ public class AuthorizeTransactionCommandHandlerTests : IDisposable
         dbTx.InDoubt.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Handle_PersistsMaskedCardData_WhileTheConnectorStillReceivesClearFields()
+    {
+        // Arrange
+        const string pan = "4539578763621486";
+        const string track2 = "4539578763621486=29121011234567890";
+        const string pinBlock = "A1B2C3D4E5F60718";
+        var command = CreateCommand("tr-mask-001") with { Pan = pan, Track2 = track2, PinBlock = pinBlock };
+
+        IsoMessage? sent = null;
+        var respIso = new IsoMessage { Mti = "0110" };
+        respIso.Set(2, pan);
+        respIso.Set(39, "00");
+        _connector.AuthorizeAsync(Arg.Do<IsoMessage>(m => sent = m), Arg.Any<CancellationToken>()).Returns(respIso);
+
+        // Act
+        await _sut.Handle(command, CancellationToken.None);
+
+        // Assert: the network message keeps the real card data
+        sent.Should().NotBeNull();
+        sent!.Fields[2].Should().Be(pan);
+        sent.Fields[35].Should().Be(track2);
+        sent.Fields[52].Should().Be(pinBlock);
+
+        // Assert: nothing persisted carries it
+        var dbTx = await _db.Transactions.AsNoTracking().FirstAsync(t => t.TraceId == "tr-mask-001");
+        dbTx.RequestJson.Should().NotContain(pan);
+        dbTx.RequestJson.Should().NotContain(track2);
+        dbTx.RequestJson.Should().NotContain(pinBlock);
+        dbTx.RequestJson.Should().NotContain("=2912");
+        dbTx.RequestJson.Should().Contain("453957******1486");
+        dbTx.ResponseJson.Should().NotBeNull();
+        dbTx.ResponseJson.Should().NotContain(pan);
+        dbTx.ResponseJson.Should().Contain("\"39\":\"00\"");
+    }
+
     private AuthorizeTransactionCommand CreateCommand(string traceId, string? idemKey = null)
     {
         return new AuthorizeTransactionCommand(
