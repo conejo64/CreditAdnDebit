@@ -19,15 +19,6 @@ public sealed class InstallmentBillingIntegrationTests : IntegrationTestBase
 
     private static readonly DateTimeOffset PurchasePostedOn = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Jan =
-        (new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 1, 31, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 1, 31, 0, 0, 0, DateTimeKind.Utc));
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Feb =
-        (new DateTime(2025, 2, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 2, 28, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 2, 28, 0, 0, 0, DateTimeKind.Utc));
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Mar =
-        (new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 3, 31, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 3, 31, 0, 0, 0, DateTimeKind.Utc));
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Apr =
-        (new DateTime(2025, 4, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 4, 30, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 4, 30, 0, 0, 0, DateTimeKind.Utc));
-
     private BillingService _billing = null!;
     private InstallmentService _installments = null!;
 
@@ -51,11 +42,11 @@ public sealed class InstallmentBillingIntegrationTests : IntegrationTestBase
 
         await _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: null, CancellationToken.None);
 
-        var jan = await GenerateAsync(accountId, Jan);
+        var jan = await _billing.GenerateAsync(accountId, BillingCycles.Jan);
         jan.Purchases.Should().Be(0m, "the deferred purchase leaves the purchase base of the cycle it was posted in");
         jan.NewBalance.Should().Be(0m, "no installment is due yet in the purchase cycle");
 
-        var feb = await GenerateAsync(accountId, Feb);
+        var feb = await _billing.GenerateAsync(accountId, BillingCycles.Feb);
         feb.PreviousBalance.Should().Be(0m, "deferred principal is not carried as previous balance");
         feb.NewBalance.Should().Be(100m, "only the first installment is due");
         feb.TotalPaymentDue.Should().Be(100m);
@@ -73,15 +64,15 @@ public sealed class InstallmentBillingIntegrationTests : IntegrationTestBase
 
         var plan = await _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: null, CancellationToken.None);
 
-        await GenerateAsync(accountId, Jan);
-        await GenerateAsync(accountId, Feb);
+        await _billing.GenerateAsync(accountId, BillingCycles.Jan);
+        await _billing.GenerateAsync(accountId, BillingCycles.Feb);
 
         (await SumAsync(accountId)).Should().Be(300m, "the account exposure is unchanged by billing an installment");
         (await SumAsync(accountId, LedgerEntryType.DeferredPrincipal)).Should().Be(200m, "two installments remain deferred");
         (await SumAsync(accountId, LedgerEntryType.Installment)).Should().Be(100m, "one installment has been billed");
 
-        await GenerateAsync(accountId, Mar);
-        await GenerateAsync(accountId, Apr);
+        await _billing.GenerateAsync(accountId, BillingCycles.Mar);
+        await _billing.GenerateAsync(accountId, BillingCycles.Apr);
 
         (await SumAsync(accountId)).Should().Be(300m);
         (await SumAsync(accountId, LedgerEntryType.DeferredPrincipal)).Should().Be(0m, "all principal has been billed");
@@ -102,16 +93,32 @@ public sealed class InstallmentBillingIntegrationTests : IntegrationTestBase
         var plan = await _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: null, CancellationToken.None);
         plan.InterestApr.Should().Be(0.12m, "the APR comes from the product when the request does not supply one");
 
-        await GenerateAsync(accountId, Jan);
-        var feb = await GenerateAsync(accountId, Feb);
+        await _billing.GenerateAsync(accountId, BillingCycles.Jan);
+        var feb = await _billing.GenerateAsync(accountId, BillingCycles.Feb);
 
         feb.InterestDue.Should().Be(3.00m, "300 outstanding * 12 % / 12 months");
         feb.PrincipalDue.Should().Be(100m);
         feb.TotalPaymentDue.Should().Be(103.00m);
     }
 
-    private Task<StatementEntity> GenerateAsync(Guid accountId, (DateTime Start, DateTime End, DateTime StatementDate) cycle) =>
-        _billing.GenerateStatementAsync(accountId, cycle.Start, cycle.End, cycle.StatementDate, dueDateOverride: null, CancellationToken.None);
+    [Fact(DisplayName = "The product's MaxInstallmentApr caps both the requested and the default APR")]
+    public async Task Installment_apr_above_the_product_cap_is_rejected()
+    {
+        var accountId = await SeedProductAndAccountAsync(defaultApr: 0.12m, maxApr: 0.10m);
+        var purchase = await AddPurchaseAsync(accountId, 300m);
+
+        var requestedAboveCap = () => _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: 0.20m, CancellationToken.None);
+        await requestedAboveCap.Should().ThrowAsync<InvalidOperationException>().WithMessage("*exceeds the maximum*");
+
+        var defaultAboveCap = () => _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: null, CancellationToken.None);
+        await defaultAboveCap.Should().ThrowAsync<InvalidOperationException>().WithMessage("*exceeds the maximum*");
+
+        var plan = await _installments.DeferPurchaseAsync(accountId, purchase.Id, installments: 3, customApr: 0.08m, CancellationToken.None);
+        plan.InterestApr.Should().Be(0.08m, "a requested APR within the cap is accepted");
+
+        await using var reader = PostgresFixture.CreateSiblingContext(Db);
+        (await reader.InstallmentPlans.AsNoTracking().CountAsync(p => p.AccountId == accountId)).Should().Be(1, "the rejected attempts persisted nothing");
+    }
 
     private async Task<decimal> SumAsync(Guid accountId, LedgerEntryType? type = null)
     {
