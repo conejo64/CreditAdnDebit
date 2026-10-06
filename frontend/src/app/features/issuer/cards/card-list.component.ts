@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { CardService, Card, CardStatus } from './card.service';
-import { generatePan } from './pan-generator';
 import { CustomerService, Customer, Account } from '../customers/customer.service';
 import { CatalogService, CatalogBin } from '../../switch/catalog.service';
 import { NotificationService } from '../../../core/notification.service';
@@ -451,10 +450,9 @@ export class CardListComponent {
   issueCard(accountId: string, bin: string) {
     if (!accountId) return;
 
-    const pan = generatePan(bin);
     const expiryYyMm = '2912'; // Dec 2029
 
-    this.cardService.issueCard(accountId, bin, pan, expiryYyMm).pipe(
+    this.cardService.issueCard(accountId, bin, expiryYyMm).pipe(
       catchError(err => {
         console.error('Error issuing card:', err?.status, err?.message);
         this.notifications.error('No se pudo emitir la tarjeta. Verifique la conexión.');

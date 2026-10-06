@@ -42,14 +42,18 @@ export class CardService {
         return this.http.get<Card>(`${this.baseUrl}/${id}`);
     }
 
-    issueCard(accountId: string, bin: string, pan: string, expiryYyMm: string): Observable<Card> {
+    /**
+     * Requests a new card on an account. The PAN is generated and vaulted by CardVault from the
+     * BIN; the browser never sees, builds or sends a card number. The response carries only the
+     * vault token and the masked PAN.
+     */
+    issueCard(accountId: string, bin: string, expiryYyMm: string): Observable<Card> {
         // CardVault's IssueCardRequest declares `string Bin`. The BIN selector binds to
         // CatalogBin.binStart, which the catalog API serialises as a number, and the
         // `bin: string` annotation above is erased at runtime — so coerce at the boundary.
         return this.http.post<Card>(`${this.baseUrl}/issue`, {
             accountId,
             bin: String(bin),
-            pan,
             expiryYyMm
         });
     }
