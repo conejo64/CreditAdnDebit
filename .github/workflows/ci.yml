@@ -49,8 +49,8 @@ jobs:
         run: dotnet build -c Release --no-restore backend/CardSwitchPlatform.sln
 
       # Integration tests (Category=Integration) need a PostgreSQL server and run in the
-      # dedicated `integration-test` job below. Keeping CardVault.IntegrationTests in the
-      # solution means it is still compiled here, so a broken integration build fails fast.
+      # dedicated `integration-test` job below. Keeping the *.IntegrationTests projects in the
+      # solution means they are still compiled here, so a broken integration build fails fast.
       - name: Test
         run: dotnet test -c Release --no-build --filter "Category!=Integration" --logger "trx;LogFileName=results.trx" backend/CardSwitchPlatform.sln
 
@@ -62,7 +62,7 @@ jobs:
           path: "**/TestResults/*.trx"
 
   integration-test:
-    name: Integration Test (CardVault on PostgreSQL)
+    name: Integration Test (CardVault + IsoSwitch on PostgreSQL)
     runs-on: ubuntu-latest
 
     services:
@@ -81,11 +81,13 @@ jobs:
           --health-retries 10
 
     env:
-      # Consumed by PostgresFixture: an administrative connection; the fixture creates one
-      # fresh database per test on this server.
+      # Consumed by each service's PostgresFixture (shared/tests/Postgres.TestSupport): an
+      # administrative connection; the fixture creates one fresh database per test on this
+      # server, with a per-service prefix (cv_it_, is_it_), so both projects share the service.
       # The password is the throwaway credential of the ephemeral Postgres service container above
       # (POSTGRES_PASSWORD); it never leaves this job and protects nothing. Allowed for gitleaks.
       CARDVAULT_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres" # gitleaks:allow
+      ISOSWITCH_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres" # gitleaks:allow
 
     steps:
       - name: Checkout
@@ -99,20 +101,30 @@ jobs:
           cache-dependency-path: "**/*.csproj"
 
       - name: Restore dependencies
-        run: dotnet restore backend/services/CardVault/tests/CardVault.IntegrationTests/CardVault.IntegrationTests.csproj
+        run: |
+          dotnet restore backend/services/CardVault/tests/CardVault.IntegrationTests/CardVault.IntegrationTests.csproj
+          dotnet restore backend/services/IsoSwitch/tests/IsoSwitch.IntegrationTests/IsoSwitch.IntegrationTests.csproj
 
       - name: Build
-        run: dotnet build -c Release --no-restore backend/services/CardVault/tests/CardVault.IntegrationTests/CardVault.IntegrationTests.csproj
+        run: |
+          dotnet build -c Release --no-restore backend/services/CardVault/tests/CardVault.IntegrationTests/CardVault.IntegrationTests.csproj
+          dotnet build -c Release --no-restore backend/services/IsoSwitch/tests/IsoSwitch.IntegrationTests/IsoSwitch.IntegrationTests.csproj
 
-      - name: Test
+      - name: Test CardVault
         run: dotnet test -c Release --no-build --logger "trx;LogFileName=integration-results.trx" backend/services/CardVault/tests/CardVault.IntegrationTests/CardVault.IntegrationTests.csproj
+
+      - name: Test IsoSwitch
+        if: always()
+        run: dotnet test -c Release --no-build --logger "trx;LogFileName=integration-results.trx" backend/services/IsoSwitch/tests/IsoSwitch.IntegrationTests/IsoSwitch.IntegrationTests.csproj
 
       - name: Upload integration test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: "backend/services/CardVault/tests/CardVault.IntegrationTests/TestResults/*.trx"
+          path: |
+            backend/services/CardVault/tests/CardVault.IntegrationTests/TestResults/*.trx
+            backend/services/IsoSwitch/tests/IsoSwitch.IntegrationTests/TestResults/*.trx
 
   build-frontend:
     name: Build Frontend (Angular)
