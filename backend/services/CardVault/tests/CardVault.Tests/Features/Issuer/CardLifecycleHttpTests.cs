@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using CardVault.Application.Ports;
+using CardVault.Application.Services;
+using CardVault.Infrastructure.Persistence;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CardVault.Tests.Features.Issuer;
 
@@ -226,8 +231,23 @@ public sealed class CardLifecycleHttpTests : IClassFixture<CardVaultWebApplicati
         var body = await cardResp.Content.ReadAsStringAsync();
         var card = System.Text.Json.JsonDocument.Parse(body).RootElement;
         card.GetProperty("maskedPan").GetString().Should().MatchRegex(@"^411111\*{6}[0-9]{4}$");
-        card.GetProperty("panToken").GetString().Should().StartWith("tok_");
-        body.Should().NotMatchRegex("[0-9]{16}", "the response must carry a token and a mask, never a PAN");
+        var token = card.GetProperty("panToken").GetString();
+        token.Should().StartWith("tok_");
+
+        // Resolve the PAN that was actually sealed in the vault and prove it never reached the
+        // response. A generic "no 16-digit run" assertion is not deterministic: the token's
+        // 16 hex characters can legitimately be all digits.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CardVaultDbContext>();
+            var encryptor = scope.ServiceProvider.GetRequiredService<IContactDataEncryptor>();
+            var vault = await db.TokenVault.AsNoTracking().SingleAsync(x => x.Token == token);
+            var sealedPayload = encryptor.DecryptFromParts<IssuedCardPayload>(vault.KeyId, vault.NonceB64, vault.CiphertextB64, vault.TagB64);
+
+            sealedPayload.Pan.Should().HaveLength(16).And.StartWith("411111");
+            sealedPayload.Pan.Should().NotBe("5555555555554444", "the client-supplied PAN must be ignored");
+            body.Should().NotContain(sealedPayload.Pan, "the response must carry a token and a mask, never the PAN");
+        }
         body.Should().NotContain("5554444");
 
         _client.DefaultRequestHeaders.Authorization = null;
