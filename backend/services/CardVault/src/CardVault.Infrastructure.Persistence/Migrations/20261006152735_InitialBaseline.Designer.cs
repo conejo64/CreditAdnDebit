@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CardVault.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CardVaultDbContext))]
-    [Migration("20260712143908_AddPinKdfColumns")]
-    partial class AddPinKdfColumns
+    [Migration("20261006152735_InitialBaseline")]
+    partial class InitialBaseline
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1023,8 +1023,14 @@ namespace CardVault.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<decimal?>("DefaultInstallmentApr")
+                        .HasColumnType("numeric");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxInstallmentApr")
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Name")
                         .IsRequired()
