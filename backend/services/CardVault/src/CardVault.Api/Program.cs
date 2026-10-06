@@ -497,7 +497,17 @@ using (var scope = app.Services.CreateScope())
         // Card products
         if (!await cardDb.CardProducts.AnyAsync())
         {
-            cardDb.CardProducts.AddRange(new CardProductEntity { Code = "VISA_CREDIT_CLASSIC", Brand = "VISA", ProductType = "CREDIT", Name = "Visa Classic", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow }, new CardProductEntity { Code = "VISA_DEBIT", Brand = "VISA", ProductType = "DEBIT", Name = "Visa Debit", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow });
+            cardDb.CardProducts.AddRange(
+                new CardProductEntity
+                {
+                    Code = "VISA_CREDIT_CLASSIC", Brand = "VISA", ProductType = "CREDIT", Name = "Visa Classic", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow,
+                    // Development seed values only, not regulatory rates. InstallmentService fails closed
+                    // without a default APR, so a credit product needs one to defer purchases locally.
+                    DefaultInstallmentApr = 0.16m,
+                    MaxInstallmentApr = 0.18m
+                },
+                // Debit products never defer purchases: both APR fields stay null.
+                new CardProductEntity { Code = "VISA_DEBIT", Brand = "VISA", ProductType = "DEBIT", Name = "Visa Debit", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow });
         }
 
         // BIN ranges
