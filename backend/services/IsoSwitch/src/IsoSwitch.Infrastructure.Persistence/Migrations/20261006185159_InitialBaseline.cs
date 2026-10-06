@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace IsoSwitch.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class FinalMigration : Migration
+    public partial class InitialBaseline : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
