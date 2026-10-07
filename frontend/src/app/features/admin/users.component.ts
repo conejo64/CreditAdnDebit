@@ -362,7 +362,7 @@ export class UsersComponent implements OnInit {
 
     createForm: FormGroup = this.fb.group({
         email: ['', [Validators.required, Validators.email]],
-        password: ['Admin1234!', [Validators.required, Validators.minLength(8)]]
+        password: ['', [Validators.required, Validators.minLength(8)]]
     });
 
     ngOnInit(): void {
@@ -396,7 +396,7 @@ export class UsersComponent implements OnInit {
     openCreateModal(): void {
         this.createError = '';
         this.createRoles = ['Operator'];
-        this.createForm.reset({ email: '', password: 'Admin1234!' });
+        this.createForm.reset({ email: '', password: '' });
         this.isCreateModalOpen = true;
     }
 

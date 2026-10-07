@@ -172,7 +172,9 @@ builder.Services.AddDbContext<IdentityAppDbContext>(opt => opt.UseSqlServer(buil
 // Identity + MFA
 builder.Services.AddIdentityCore<AppUser>(opt =>
 {
-    opt.Password.RequiredLength = 8;
+    // G1-T2: PCI DSS v4 8.3.6 — minimum 12 characters; the default character rules
+    // (digit, upper, lower, non-alphanumeric) stay in force.
+    opt.Password.RequiredLength = 12;
     // G1-T1: PCI DSS v4 8.3.4 — lock after 10 consecutive failures for 30 minutes.
     // The auth handlers drive the counter through UserManager (AccessFailedAsync /
     // ResetAccessFailedCountAsync / IsLockedOutAsync).

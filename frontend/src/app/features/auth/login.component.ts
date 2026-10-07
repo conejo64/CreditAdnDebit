@@ -34,7 +34,7 @@ import { AuthService } from '../../core/auth.service';
                   id="email"
                   class="form-control" 
                   formControlName="email" 
-                  placeholder="admin@demo.com"
+                  placeholder="correo@dominio.com"
                   autocomplete="username"
                 >
               </div>
@@ -434,9 +434,10 @@ export class LoginComponent {
 
   showPassword = false;
 
+  // G1-T2: no prefilled development credentials (audit finding) — the user types them.
   loginForm: FormGroup = this.fb.group({
-    email: ['admin@demo.com', [Validators.required, Validators.email]],
-    password: ['Admin1234!', [Validators.required]],
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', [Validators.required]],
     rememberMe: [false] // Se integra el checkbox al formulario
   });
 
