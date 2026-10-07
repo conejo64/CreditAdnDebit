@@ -1,23 +1,23 @@
-using CardVault.Infrastructure.Persistence;
+using IsoSwitch.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Postgres.TestSupport;
 using Xunit.Abstractions;
 using Xunit.Sdk;
 
-namespace CardVault.IntegrationTests.Infrastructure;
+namespace IsoSwitch.IntegrationTests.Infrastructure;
 
 /// <summary>
-/// Collection-level fixture that provides a real PostgreSQL server for the CardVault integration tests.
+/// Collection-level fixture that provides a real PostgreSQL server for the IsoSwitch integration tests.
 ///
-/// The server lifecycle (external <c>CARDVAULT_TEST_POSTGRES</c> connection string or a
+/// The server lifecycle (external <c>ISOSWITCH_TEST_POSTGRES</c> connection string or a
 /// <c>postgres:16-alpine</c> Testcontainer, one fresh database per <see cref="CreateDatabaseAsync"/>,
 /// cleanup with logging) lives in the shared <see cref="PostgresTestServer"/>; this class adapts it to
-/// xunit and to <see cref="CardVaultDbContext"/>.
+/// xunit and to <see cref="IsoSwitchDbContext"/>.
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    public const string EnvironmentVariable = "CARDVAULT_TEST_POSTGRES";
-    private const string DatabasePrefix = "cv_it_";
+    public const string EnvironmentVariable = "ISOSWITCH_TEST_POSTGRES";
+    private const string DatabasePrefix = "is_it_";
 
     private readonly PostgresTestServer _server;
 
@@ -47,44 +47,27 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public Task<string> CreateDatabaseAsync(CancellationToken ct = default) => _server.CreateDatabaseAsync(ct);
 
-    /// <summary>
-    /// Builds <see cref="DbContextOptions{CardVaultDbContext}"/> for a fresh database.
-    /// </summary>
-    public async Task<DbContextOptions<CardVaultDbContext>> CreateOptionsAsync(CancellationToken ct = default)
+    /// <summary>Builds <see cref="DbContextOptions{IsoSwitchDbContext}"/> for a fresh, empty database.</summary>
+    public async Task<DbContextOptions<IsoSwitchDbContext>> CreateOptionsAsync(CancellationToken ct = default)
     {
         var connectionString = await CreateDatabaseAsync(ct);
-        return new DbContextOptionsBuilder<CardVaultDbContext>()
-            .UseNpgsql(connectionString)
-            .Options;
-    }
-
-    /// <summary>
-    /// Creates a <see cref="CardVaultDbContext"/> on a fresh database whose schema was created with
-    /// <c>EnsureCreated()</c> from the current model. This mirrors how the Development environment
-    /// provisions its schema today and keeps the behaviour tests independent from the migration chain
-    /// (see <c>CleanDatabaseMigrateTest</c> for the migration path).
-    /// </summary>
-    public async Task<CardVaultDbContext> CreateDbContextAsync(CancellationToken ct = default)
-    {
-        var options = await CreateOptionsAsync(ct);
-        var context = new CardVaultDbContext(options);
-        await context.Database.EnsureCreatedAsync(ct);
-        return context;
+        return BuildOptions(connectionString);
     }
 
     /// <summary>
     /// Creates a second context on the same database, with a clean change tracker.
     /// Useful for read-after-write assertions.
     /// </summary>
-    public static CardVaultDbContext CreateSiblingContext(CardVaultDbContext existing)
+    public static IsoSwitchDbContext CreateSiblingContext(IsoSwitchDbContext existing)
     {
         var connectionString = existing.Database.GetConnectionString()
             ?? throw new InvalidOperationException("The existing context has no connection string.");
 
-        var options = new DbContextOptionsBuilder<CardVaultDbContext>()
+        return new IsoSwitchDbContext(BuildOptions(connectionString));
+    }
+
+    private static DbContextOptions<IsoSwitchDbContext> BuildOptions(string connectionString)
+        => new DbContextOptionsBuilder<IsoSwitchDbContext>()
             .UseNpgsql(connectionString)
             .Options;
-
-        return new CardVaultDbContext(options);
-    }
 }

@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace IsoSwitch.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(IsoSwitchDbContext))]
-    [Migration("20260417150930_FinalMigration")]
-    partial class FinalMigration
+    [Migration("20261006185159_InitialBaseline")]
+    partial class InitialBaseline
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

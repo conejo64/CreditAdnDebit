@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <!-- Shared by every *.IntegrationTests project that needs a real PostgreSQL server.
+       Deliberately free of xunit and EF Core: the service-specific fixture adapts
+       PostgresTestServer to its DbContext and to the xunit lifecycle. -->
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.1.0" />
+  </ItemGroup>
+
+</Project>
