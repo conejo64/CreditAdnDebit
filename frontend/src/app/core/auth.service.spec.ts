@@ -133,3 +133,60 @@ describe('AuthService — cookie-based session (SEC-03)', () => {
       .flush(null, { status: 401, statusText: 'Unauthorized' });
   });
 });
+
+/**
+ * G1-T1: the login screen must not disclose why a login failed. Unknown user, wrong
+ * password, a locked account (all 401 from the backend) and a rate-limited client (429)
+ * all surface the same generic Spanish message.
+ */
+describe('AuthService — generic login failure message (G1-T1)', () => {
+  const GENERIC_MESSAGE = 'No se pudo iniciar sesión. Intente nuevamente en unos minutos.';
+  let service: AuthService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [provideRouter([])]
+    });
+    service = TestBed.inject(AuthService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.clear();
+  });
+
+  it('shows the generic message on 401 (unknown user / wrong password / locked account)', () => {
+    service.login('user@test.com', 'WrongPassword1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.authError()).toBe(GENERIC_MESSAGE);
+    expect(service.currentUser()).toBeNull();
+  });
+
+  it('shows the same generic message on 429 (rate limited)', () => {
+    service.login('user@test.com', 'Password1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush(null, { status: 429, statusText: 'Too Many Requests' });
+
+    expect(service.authError()).toBe(GENERIC_MESSAGE);
+    expect(service.authError()).not.toContain('bloquead');
+    expect(service.authError()).not.toContain('locked');
+  });
+
+  it('does not issue a refresh or logout request after a 429 on login', () => {
+    service.login('user@test.com', 'Password1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush(null, { status: 429, statusText: 'Too Many Requests' });
+
+    httpMock.expectNone(`${environment.apiUrl}/auth/refresh`);
+    httpMock.expectNone(`${environment.apiUrl}/auth/logout`);
+  });
+});
