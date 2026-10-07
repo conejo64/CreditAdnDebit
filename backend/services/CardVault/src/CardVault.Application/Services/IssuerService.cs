@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using CardVault.Application.Ports;
 using CardVault.Domain;
 using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Issuer;
@@ -10,15 +9,27 @@ namespace CardVault.Application.Services;
 
 public enum CardLifecycleError { None = 0, NotFound, InvalidStatus }
 
+/// <summary>
+/// Plaintext that the vault cipher seals for an issued card. Property names are the wire contract with the
+/// tokenization endpoints (<c>CardVault.Api.Vault.TokenVaultService.SensitiveCardPayload</c> serializes to the
+/// same JSON), so a card issued here can be detokenized through <c>/api/tokens</c> like any other vault entry.
+/// </summary>
+public sealed record IssuedCardPayload(string Pan, string? ExpiryYyMm);
+
 public sealed class IssuerService
 {
+    /// <summary>Draws before issuance gives up on an improbable run of masked-PAN collisions.</summary>
+    private const int MaxPanDraws = 10;
+
     private readonly CardVaultDbContext _db;
     private readonly AuditService _audit;
+    private readonly IContactDataEncryptor _encryptor;
 
-    public IssuerService(CardVaultDbContext db, AuditService audit)
+    public IssuerService(CardVaultDbContext db, AuditService audit, IContactDataEncryptor encryptor)
     {
         _db = db;
         _audit = audit;
+        _encryptor = encryptor;
     }
 
     public async Task<CardAccountEntity> CreateAccountAsync(Guid customerId, AccountType type, string productCode, decimal creditLimit, CancellationToken ct)
@@ -42,23 +53,32 @@ public sealed class IssuerService
         return acc;
     }
 
-    public async Task<CardEntity> IssueCardAsync(Guid accountId, string bin, string pan, string expiryYyMm, CancellationToken ct)
+    /// <summary>
+    /// Issues a card on <paramref name="accountId"/>. The PAN is generated here from <paramref name="bin"/>
+    /// (which must be 6 or 8 digits inside an enabled catalog range), sealed with the vault cipher, and never
+    /// returned: callers get the token, the mask and the last four digits.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The BIN is malformed, unknown or disabled, or no unique PAN could be drawn.</exception>
+    public async Task<CardEntity> IssueCardAsync(Guid accountId, string bin, string expiryYyMm, CancellationToken ct)
     {
-        // Tokenize PAN (PCI: store only token + masked PAN)
-        var token = "tok_" + Guid.NewGuid().ToString("N")[..16];
+        bin = bin?.Trim() ?? string.Empty;
+        await EnsureBinIsIssuableAsync(bin, ct);
 
+        var pan = await DrawUniquePanAsync(bin, ct);
         var masked = MaskPan(pan);
-        var last4 = pan.Length >= 4 ? pan[^4..] : pan;
+        var last4 = pan[^4..];
 
-        // minimal "encryption" is already used by /api/tokens/tokenize; we will store a vault entry with placeholder crypto fields
+        // PCI: the clear PAN lives only in this method; the vault row holds AES-GCM parts from the active key.
+        var token = "tok_" + Guid.NewGuid().ToString("N")[..16];
+        var (keyId, nonceB64, cipherB64, tagB64) = _encryptor.EncryptToParts(new IssuedCardPayload(pan, expiryYyMm));
         var vault = new TokenVaultEntryEntity
         {
             Id = Guid.NewGuid(),
             Token = token,
-            KeyId = "dev-key",
-            NonceB64 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(12)),
-            CiphertextB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(pan)), // dev-only placeholder
-            TagB64 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)),
+            KeyId = keyId,
+            NonceB64 = nonceB64,
+            CiphertextB64 = cipherB64,
+            TagB64 = tagB64,
             MaskedPan = masked,
             Bin = bin,
             CreatedOn = DateTimeOffset.UtcNow
@@ -192,8 +212,8 @@ public sealed class IssuerService
             ChangedOn = DateTimeOffset.UtcNow
         });
 
-        // Issue new card on the same account (same BIN, same expiry pattern)
-        var newCard = await IssueCardAsync(old.AccountId, old.Bin, Guid.NewGuid().ToString("N")[..16], old.ExpiryYyMm, ct);
+        // Issue new card on the same account (same BIN, same expiry pattern) with a freshly generated PAN
+        var newCard = await IssueCardAsync(old.AccountId, old.Bin, old.ExpiryYyMm, ct);
 
         // Bidirectional audit linkage (spec ILB-CL-2-S1)
         _db.CardStatusHistory.Add(new CardStatusHistoryEntity
@@ -223,6 +243,40 @@ public sealed class IssuerService
             ct: ct);
 
         return (CardLifecycleError.None, newCard);
+    }
+
+    private async Task EnsureBinIsIssuableAsync(string bin, CancellationToken ct)
+    {
+        if (!PanGenerator.IsWellFormedBin(bin))
+            throw new InvalidOperationException($"BIN '{bin}' is not valid: a BIN must be exactly 6 or 8 digits.");
+
+        var ranges = await _db.BinRanges.AsNoTracking()
+            .Where(r => r.Enabled)
+            .Select(r => new { r.BinStart, r.BinEnd })
+            .ToListAsync(ct);
+
+        if (!ranges.Any(r => PanGenerator.BinMatchesRange(bin, r.BinStart, r.BinEnd)))
+            throw new InvalidOperationException($"BIN '{bin}' does not belong to any enabled BIN range of this issuer.");
+    }
+
+    /// <summary>
+    /// Draws PANs until one is not already present. <c>TokenVault</c> has no blind index of the PAN (adding one
+    /// is a schema change outside this slice), so uniqueness is checked on the masked form (BIN + last four),
+    /// which is strictly coarser than PAN equality: any true collision is caught, at the cost of a rare retry.
+    /// </summary>
+    private async Task<string> DrawUniquePanAsync(string bin, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < MaxPanDraws; attempt++)
+        {
+            var pan = PanGenerator.Generate(bin);
+            var masked = MaskPan(pan);
+
+            var taken = await _db.TokenVault.AnyAsync(v => v.MaskedPan == masked, ct)
+                        || await _db.Cards.AnyAsync(c => c.MaskedPan == masked, ct);
+            if (!taken) return pan;
+        }
+
+        throw new InvalidOperationException($"Could not draw a unique PAN for BIN '{bin}' after {MaxPanDraws} attempts.");
     }
 
     private static string MaskPan(string pan)

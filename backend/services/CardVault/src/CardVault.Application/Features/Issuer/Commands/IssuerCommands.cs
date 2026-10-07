@@ -60,8 +60,16 @@ public class IssueCardCommandHandler : IRequestHandler<IssueCardCommand, IResult
     public async Task<IResult> Handle(IssueCardCommand request, CancellationToken cancellationToken)
     {
         var req = request.Request;
-        var card = await _issuer.IssueCardAsync(req.AccountId, req.Bin, req.Pan, req.ExpiryYyMm, cancellationToken);
-        return Results.Created($"/api/issuer/cards/{card.Id}", new { card.Id, card.AccountId, card.Bin, card.PanToken, card.MaskedPan, card.ExpiryYyMm, card.Status, card.CreatedOn });
+        try
+        {
+            var card = await _issuer.IssueCardAsync(req.AccountId, req.Bin, req.ExpiryYyMm, cancellationToken);
+            return Results.Created($"/api/issuer/cards/{card.Id}", new { card.Id, card.AccountId, card.Bin, card.PanToken, card.MaskedPan, card.ExpiryYyMm, card.Status, card.CreatedOn });
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Malformed, unknown or disabled BIN: a client error, not a server fault.
+            return Results.BadRequest(new { message = ex.Message });
+        }
     }
 }
 
