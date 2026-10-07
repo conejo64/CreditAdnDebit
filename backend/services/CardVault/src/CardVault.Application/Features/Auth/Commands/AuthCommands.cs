@@ -23,6 +23,39 @@ public static class MfaPendingChallenge
     public const string TokenName = "mfa-pending";
 }
 
+/// <summary>
+/// G1-T4: refresh-token issuance policy shared by login, MFA verification and rotation.
+/// <para>
+/// Lifetime is <c>Jwt:RefreshTokenDays</c>, default <see cref="DefaultLifetimeDays"/> (7).
+/// Seven days is a policy choice, not a technical limit: it bounds how long a stolen but
+/// never-reused refresh token stays valuable, while reuse detection (family revocation)
+/// covers the case where the thief and the owner both present it. Operators who need a
+/// shorter window for high-privilege deployments lower the setting; raising it widens the
+/// exposure window and should be a documented decision.
+/// </para>
+/// <para>
+/// A family groups every token descending from one authentication (login or MFA verify).
+/// Rotation keeps the family; a new authentication opens a new one.
+/// </para>
+/// </summary>
+public static class RefreshTokenPolicy
+{
+    public const int DefaultLifetimeDays = 7;
+    public const string LifetimeConfigurationKey = "Jwt:RefreshTokenDays";
+
+    public static int LifetimeDays(Microsoft.Extensions.Configuration.IConfiguration? config)
+        => int.TryParse(config?[LifetimeConfigurationKey], out var days) && days > 0 ? days : DefaultLifetimeDays;
+
+    public static RefreshToken NewToken(string userId, string tokenHash, Guid familyId, Microsoft.Extensions.Configuration.IConfiguration? config)
+        => new()
+        {
+            UserId = userId,
+            TokenHash = tokenHash,
+            FamilyId = familyId,
+            ExpiresOn = DateTimeOffset.UtcNow.AddDays(LifetimeDays(config))
+        };
+}
+
 public record RegisterUserCommand(RegisterRequest Request) : IRequest<IResult>;
 public class RegisterUserCommandHandler : IRequestHandler<RegisterUserCommand, IResult>
 {
@@ -145,13 +178,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, IResult>
         var refresh = _tokens.GenerateRefreshToken();
         var hash = _tokens.HashRefreshToken(refresh);
 
-        int refreshDays = int.TryParse(_config["Jwt:RefreshTokenDays"], out var rd) ? rd : 7;
-        _idDb.RefreshTokens.Add(new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = hash,
-            ExpiresOn = DateTimeOffset.UtcNow.AddDays(refreshDays)
-        });
+        // G1-T4: a fresh authentication opens a new refresh-token family.
+        _idDb.RefreshTokens.Add(RefreshTokenPolicy.NewToken(user.Id, hash, Guid.NewGuid(), _config));
         await _idDb.SaveChangesAsync(cancellationToken);
 
         var authenticatedUser = await _tokens.BuildAuthenticatedUserAsync(user);
@@ -245,13 +273,8 @@ public class MfaVerifyCommandHandler : IRequestHandler<MfaVerifyCommand, IResult
         var refresh = _tokens.GenerateRefreshToken();
         var hash = _tokens.HashRefreshToken(refresh);
 
-        int refreshDays = int.TryParse(_config["Jwt:RefreshTokenDays"], out var rd) ? rd : 7;
-        _idDb.RefreshTokens.Add(new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = hash,
-            ExpiresOn = DateTimeOffset.UtcNow.AddDays(refreshDays)
-        });
+        // G1-T4: MFA verification completes an authentication, so it opens a new family too.
+        _idDb.RefreshTokens.Add(RefreshTokenPolicy.NewToken(user.Id, hash, Guid.NewGuid(), _config));
         await _idDb.SaveChangesAsync(cancellationToken);
 
         var authenticatedUser = await _tokens.BuildAuthenticatedUserAsync(user);
@@ -263,19 +286,31 @@ public class MfaVerifyCommandHandler : IRequestHandler<MfaVerifyCommand, IResult
 }
 
 public record RefreshTokenCommand(RefreshRequest Request) : IRequest<IResult>;
+
+/// <summary>
+/// Rotates refresh tokens. G1-T4: a presented token that is already revoked (rotated away
+/// or revoked by logout) is reuse — somebody holds a copy. The whole family is revoked so
+/// neither the thief nor the legitimate client can continue, an audit event records user
+/// and family (never token material), and the caller receives the same generic 401 as any
+/// other rejection. An expired-but-never-revoked token is simply stale, not reuse.
+/// </summary>
 public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, IResult>
 {
+    public const string ReuseDetectedEventType = "auth.refresh.reuse_detected";
+
     private readonly IdentityAppDbContext _idDb;
     private readonly UserManager<AppUser> _users;
     private readonly IUserTokenService _tokens;
     private readonly Microsoft.Extensions.Configuration.IConfiguration _config;
+    private readonly AuditService _audit;
 
-    public RefreshTokenCommandHandler(IdentityAppDbContext idDb, UserManager<AppUser> users, IUserTokenService tokens, Microsoft.Extensions.Configuration.IConfiguration config)
+    public RefreshTokenCommandHandler(IdentityAppDbContext idDb, UserManager<AppUser> users, IUserTokenService tokens, Microsoft.Extensions.Configuration.IConfiguration config, AuditService audit)
     {
         _idDb = idDb;
         _users = users;
         _tokens = tokens;
         _config = config;
+        _audit = audit;
     }
 
     public async Task<IResult> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
@@ -283,36 +318,63 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, I
         var req = request.Request;
         var refreshToken = req.RefreshToken;
         if (string.IsNullOrEmpty(refreshToken))
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+            return PasswordCheckGuard.GenericUnauthorized();
 
         var hash = _tokens.HashRefreshToken(refreshToken);
         var stored = await _idDb.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == hash, cancellationToken);
-        if (stored is null || !stored.IsActive)
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+        if (stored is null)
+            return PasswordCheckGuard.GenericUnauthorized();
+
+        if (stored.RevokedOn is not null)
+        {
+            await RevokeFamilyForReuseAsync(stored, cancellationToken);
+            return PasswordCheckGuard.GenericUnauthorized();
+        }
+
+        if (!stored.IsActive)
+            return PasswordCheckGuard.GenericUnauthorized();
 
         var user = await _users.FindByIdAsync(stored.UserId);
         if (user is null)
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+            return PasswordCheckGuard.GenericUnauthorized();
 
-        // rotate
+        // rotate — the successor stays in the same family
         stored.RevokedOn = DateTimeOffset.UtcNow;
         var newRefresh = _tokens.GenerateRefreshToken();
         var newHash = _tokens.HashRefreshToken(newRefresh);
         stored.ReplacedByTokenHash = newHash;
 
-        int refreshDays = int.TryParse(_config["Jwt:RefreshTokenDays"], out var rd) ? rd : 7;
-        _idDb.RefreshTokens.Add(new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = newHash,
-            ExpiresOn = DateTimeOffset.UtcNow.AddDays(refreshDays)
-        });
+        _idDb.RefreshTokens.Add(RefreshTokenPolicy.NewToken(user.Id, newHash, stored.FamilyId, _config));
 
         var access = await _tokens.CreateAccessTokenAsync(user);
         await _idDb.SaveChangesAsync(cancellationToken);
 
         var authenticatedUser = await _tokens.BuildAuthenticatedUserAsync(user);
         return Results.Ok(new AuthSessionResponse(false, access, newRefresh, "OK", authenticatedUser));
+    }
+
+    private async Task RevokeFamilyForReuseAsync(RefreshToken presented, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var live = await _idDb.RefreshTokens
+            .Where(x => x.FamilyId == presented.FamilyId && x.RevokedOn == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in live)
+            token.RevokedOn = now;
+        if (live.Count > 0)
+            await _idDb.SaveChangesAsync(cancellationToken);
+
+        // Identity (SQL Server) and audit (PostgreSQL) are separate stores: revoke first so a
+        // failing audit write can never leave the family alive.
+        await _audit.WriteAsync(ReuseDetectedEventType, new
+        {
+            userId = presented.UserId,
+            familyId = presented.FamilyId,
+            presentedTokenCreatedOn = presented.CreatedOn,
+            presentedTokenRevokedOn = presented.RevokedOn,
+            revokedTokens = live.Count,
+            detectedOn = now
+        }, correlationId: null, traceId: null, cancellationToken);
     }
 }
 
