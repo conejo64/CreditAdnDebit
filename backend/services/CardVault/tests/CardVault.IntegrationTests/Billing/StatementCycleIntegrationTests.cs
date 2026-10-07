@@ -94,15 +94,14 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
         mar.PreviousBalance.Should().Be(150m, "the payment is carried into every later cycle");
     }
 
-    // Observed 2026-10-05 on postgres:16-alpine with HEAD d99e89f:
+    // Observed 2026-10-05 on postgres:16-alpine with HEAD d99e89f (Gate 0 / T6), before T4b:
     //   System.ArgumentException : Cannot write DateTime with Kind=Unspecified to PostgreSQL type
     //   'timestamp with time zone', only UTC is supported.
     //   at CardVault.Application.Services.BillingService.GenerateStatementAsync(...)
-    // BillingService stores the caller's statementDate as-is; the InMemory provider accepts any Kind,
-    // Npgsql does not. A JSON body with a date-only "2025-01-31" deserializes to Kind=Unspecified and
-    // reaches this path through BillingCommands unchanged.
-    [Fact(Skip = "Gate 0 follow-up: BillingService must normalize DateTime kind (or the API must reject non-UTC dates) — Npgsql rejects Kind=Unspecified statement dates",
-        DisplayName = "A statement date with Kind=Unspecified is accepted (or normalized) by GenerateStatementAsync")]
+    // A JSON body with a date-only "2025-01-31" deserializes to Kind=Unspecified and reaches this
+    // path through BillingCommands unchanged. BillingService now normalizes every incoming DateTime
+    // to UTC at its boundary (calendar-date semantics for Unspecified, instant conversion for Local).
+    [Fact(DisplayName = "A statement date with Kind=Unspecified is normalized to UTC by GenerateStatementAsync and persisted")]
     public async Task Statement_date_with_unspecified_kind_is_normalized()
     {
         var account = await SeedCreditAccountAsync(creditLimit: 5000m, availableLimit: 4700m);
@@ -111,10 +110,20 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
 
         var unspecifiedStatementDate = new DateTime(2025, 1, 31);
         unspecifiedStatementDate.Kind.Should().Be(DateTimeKind.Unspecified);
+        var unspecifiedCycleStart = new DateTime(2025, 1, 1);
+        var unspecifiedCycleEnd = new DateTime(2025, 1, 31, 23, 59, 59);
 
-        var st = await _billing.GenerateStatementAsync(account.Id, Jan.Start, Jan.End, unspecifiedStatementDate, dueDateOverride: null, CancellationToken.None);
+        var st = await _billing.GenerateStatementAsync(account.Id, unspecifiedCycleStart, unspecifiedCycleEnd, unspecifiedStatementDate, dueDateOverride: null, CancellationToken.None);
 
         st.NewBalance.Should().Be(200m);
+
+        await using var reader = PostgresFixture.CreateSiblingContext(Db);
+        var persisted = await reader.Statements.AsNoTracking().SingleAsync(x => x.Id == st.Id);
+        persisted.StatementDate.Should().Be(new DateTime(2025, 1, 31, 0, 0, 0, DateTimeKind.Utc), "an unspecified date is the same calendar date in UTC");
+        persisted.StatementDate.Kind.Should().Be(DateTimeKind.Utc);
+        persisted.DueDate.Kind.Should().Be(DateTimeKind.Utc);
+        persisted.CycleStart.Should().Be(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        persisted.CycleEnd.Should().Be(new DateTime(2025, 1, 31, 23, 59, 59, DateTimeKind.Utc));
     }
 
     private static DateTimeOffset On(int year, int month, int day) => new(year, month, day, 12, 0, 0, TimeSpan.Zero);
