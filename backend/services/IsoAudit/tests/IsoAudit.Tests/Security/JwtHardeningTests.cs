@@ -1,3 +1,4 @@
+using BuildingBlocks.Security;
 using IsoAudit.Tests.Infrastructure;
 using IsoSwitch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -18,9 +19,9 @@ using System.Text;
 namespace IsoAudit.Tests.Security;
 
 /// <summary>
-/// SEC-4: IsoAudit validates issuer/audience on every protected endpoint and
-/// gates HTTPS metadata on environment.
-/// RED: All four scenarios fail before Task 2.3 updates Program.cs.
+/// SEC-4 / G1-T5: IsoAudit validates issuer, audience and the ES256 signature on every
+/// protected endpoint, gates HTTPS metadata on environment, and accepts nothing signed with
+/// a symmetric secret or with a private key other than CardVault's.
 /// </summary>
 public class JwtHardeningTests
 {
@@ -31,25 +32,33 @@ public class JwtHardeningTests
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Mints a JWT using the test key. Caller supplies issuer and audience so
-    /// wrong-issuer / wrong-audience tests can exercise rejection paths.
+    /// Mints a JWT with the given credentials (the test issuer key by default). Caller
+    /// supplies issuer and audience so wrong-issuer / wrong-audience tests can exercise
+    /// rejection paths.
     /// </summary>
     private static string MintToken(
         string issuer,
         string audience,
-        string key = IsoAuditWebApplicationFactory.TestJwtKey)
+        SigningCredentials? credentials = null)
     {
-        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
-        var creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
-
         var token = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,
             claims: [new Claim("scope", AuditScope)],
             expires: DateTime.UtcNow.AddMinutes(30),
-            signingCredentials: creds);
+            signingCredentials: credentials ?? IsoAuditWebApplicationFactory.CreateSigningCredentials());
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static async Task<HttpStatusCode> CallLogsAsync(string token)
+    {
+        await using var factory = new IsoAuditWebApplicationFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.GetAsync("/api/audit/logs");
+        return response.StatusCode;
     }
 
     // ── Task 2.1a — wrong issuer returns 401 ────────────────────────────────
@@ -57,18 +66,9 @@ public class JwtHardeningTests
     [Fact]
     public async Task WrongIssuer_Returns401()
     {
-        // Arrange
-        await using var factory = new IsoAuditWebApplicationFactory();
-        var client = factory.CreateClient();
+        var status = await CallLogsAsync(MintToken(issuer: "wrong-issuer", audience: CorrectAudience));
 
-        var token = MintToken(issuer: "wrong-issuer", audience: CorrectAudience);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        // Act
-        var response = await client.GetAsync("/api/audit/logs");
-
-        // Assert — wrong issuer must be rejected once ValidateIssuer=true is set
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
     }
 
     // ── Task 2.1b — wrong audience returns 401 ──────────────────────────────
@@ -76,18 +76,36 @@ public class JwtHardeningTests
     [Fact]
     public async Task WrongAudience_Returns401()
     {
-        // Arrange
-        await using var factory = new IsoAuditWebApplicationFactory();
-        var client = factory.CreateClient();
+        var status = await CallLogsAsync(MintToken(issuer: CorrectIssuer, audience: "wrong-audience"));
 
-        var token = MintToken(issuer: CorrectIssuer, audience: "wrong-audience");
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+    }
 
-        // Act
-        var response = await client.GetAsync("/api/audit/logs");
+    // ── G1-T5 — the issuer key is accepted; anything else is not ────────────
 
-        // Assert — wrong audience must be rejected once ValidateAudience=true is set
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    [Fact]
+    public async Task TokenSignedWithTheIssuerPrivateKey_Returns200()
+    {
+        var status = await CallLogsAsync(MintToken(CorrectIssuer, CorrectAudience));
+
+        Assert.Equal(HttpStatusCode.OK, status);
+    }
+
+    [Fact]
+    public async Task Hs256TokenSignedWithTheRetiredSharedSecret_Returns401()
+    {
+        var hmac = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("TestJwtKeyForIsoAuditServiceTests32Plus"));
+        var token = MintToken(CorrectIssuer, CorrectAudience, new SigningCredentials(hmac, SecurityAlgorithms.HmacSha256));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await CallLogsAsync(token));
+    }
+
+    [Fact]
+    public async Task Es256TokenSignedWithADifferentPrivateKey_Returns401()
+    {
+        var stranger = IsoAuditWebApplicationFactory.CreateSigningCredentials(EcdsaKeyMaterial.GenerateKeyPair().PrivateKeyPem);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await CallLogsAsync(MintToken(CorrectIssuer, CorrectAudience, stranger)));
     }
 
     // ── Task 2.1c — Development env → RequireHttpsMetadata=false ────────────
@@ -143,8 +161,8 @@ internal sealed class ProductionIsoAuditWebApplicationFactory : WebApplicationFa
     {
         builder.UseEnvironment("Production");
 
-        // Provide valid secrets so startup validation passes
-        builder.UseSetting("Jwt:Key", IsoAuditWebApplicationFactory.TestJwtKey);
+        // Provide valid JWT settings so startup validation passes
+        builder.UseSetting("Jwt:PublicKeyPem", IsoAuditWebApplicationFactory.PublicKeyPem);
         builder.UseSetting("Jwt:Issuer", "CardVault");
         builder.UseSetting("Jwt:Audience", "CardSwitch");
 

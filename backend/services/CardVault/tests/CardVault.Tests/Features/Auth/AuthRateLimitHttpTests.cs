@@ -98,15 +98,12 @@ public sealed class AuthRateLimitHttpTests : IDisposable
 
     private static string MintBearer()
     {
-        var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-            System.Text.Encoding.UTF8.GetBytes(CardVaultWebApplicationFactory.SigningKey));
         var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
             issuer: CardVaultWebApplicationFactory.Issuer,
             audience: CardVaultWebApplicationFactory.Audience,
             claims: [new System.Security.Claims.Claim("uid", Guid.NewGuid().ToString())],
             expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
-                key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+            signingCredentials: CardVaultWebApplicationFactory.CreateSigningCredentials());
         return new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
     }
 }

@@ -32,9 +32,6 @@ public sealed class AuthCookieAcceptanceTests : IClassFixture<IsoAuditWebApplica
     /// </summary>
     private static string CreateAccessToken()
     {
-        var key = new SymmetricSecurityKey(
-            System.Text.Encoding.UTF8.GetBytes(IsoAuditWebApplicationFactory.TestJwtKey));
-
         var token = new JwtSecurityToken(
             issuer: "CardVault",
             audience: "CardSwitch",
@@ -45,7 +42,7 @@ public sealed class AuthCookieAcceptanceTests : IClassFixture<IsoAuditWebApplica
             },
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(10),
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+            signingCredentials: IsoAuditWebApplicationFactory.CreateSigningCredentials());
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

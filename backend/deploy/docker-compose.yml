@@ -61,7 +61,20 @@ services:
   # ── Backend services ────────────────────────────────────────────────────────
   # All three services are built from the backend/ context (ADR-2, ADR-6).
   # Secrets are injected via .env (see .env.example for required variables).
-  # CICD-INV-6: IsoAudit uses Jwt__Key; CardVault and IsoSwitch use Jwt__SigningKey.
+  #
+  # G1-T5 (resolves CICD-INV-6): JWTs are signed with one ES256 (P-256) key pair.
+  #   * Every service validates with the PUBLIC key: Jwt__PublicKeyPem, read from the
+  #     JWT_PUBLIC_KEY_PEM variable in .env. A PEM is multi-line and .env cannot hold
+  #     multi-line values, so write it on one line with "\n" escapes; the services accept
+  #     both forms.
+  #   * Only CardVault (the issuer) holds the PRIVATE key. It is NOT passed through .env:
+  #     env_file injects every .env variable into all three containers, which would hand
+  #     the signing key to the validators. It is a compose secret mounted only into
+  #     cardvault and read through Jwt__PrivateKeyPath (Jwt__PrivateKeyPem is equivalent
+  #     when the deployment can scope an environment variable to one service).
+  #   * The retired Jwt__SigningKey / Jwt__Key variables must be removed from .env:
+  #     every service refuses to start while one is present.
+  # Key generation, distribution and rotation: docs/runbooks/jwt-asymmetric-keys.md
   # --------------------------------------------------------------------------
 
   cardvault:
@@ -80,6 +93,12 @@ services:
       # CardVault overrides here to its own DB, matching the Kafka override pattern.
       - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres;Password=postgres
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      # G1-T5: issuer key pair. The private key is a mounted secret (see secrets: below);
+      # the public key is the same value every validator receives.
+      - Jwt__PrivateKeyPath=/run/secrets/cardvault_jwt_private_key
+      - Jwt__PublicKeyPem=${JWT_PUBLIC_KEY_PEM:?set JWT_PUBLIC_KEY_PEM in .env (CardVault ES256 public key, PEM)}
+    secrets:
+      - cardvault_jwt_private_key
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +119,8 @@ services:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      # G1-T5: validator — public key only.
+      - Jwt__PublicKeyPem=${JWT_PUBLIC_KEY_PEM:?set JWT_PUBLIC_KEY_PEM in .env (CardVault ES256 public key, PEM)}
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,6 +138,8 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
+      # G1-T5: validator — public key only.
+      - Jwt__PublicKeyPem=${JWT_PUBLIC_KEY_PEM:?set JWT_PUBLIC_KEY_PEM in .env (CardVault ES256 public key, PEM)}
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,3 +194,10 @@ volumes:
   sqlserver_data:
   prometheus_data:
   grafana_data:
+
+secrets:
+  # G1-T5: CardVault's ES256 private key (PKCS#8 PEM). The secrets/ directory and *.pem are
+  # gitignored; generate the file with the runbook's openssl command. Mounted into cardvault
+  # only — validators never receive it.
+  cardvault_jwt_private_key:
+    file: ./secrets/cardvault-jwt-private.pem
