@@ -6,8 +6,22 @@ using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Application.Contracts;
 using CardVault.Application.Ports;
 using CardVault.Application.Services;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CardVault.Application.Features.Auth.Commands;
+
+/// <summary>
+/// G1-T3: where the login step records the MFA pending challenge so <c>mfa/verify</c> can
+/// enforce single use. The <c>jti</c> of the issued pending token is stored in Identity's
+/// own user-token table (<c>AspNetUserTokens</c>): no new schema, no process-local cache,
+/// safe across instances, and a newer login supersedes the previous challenge.
+/// </summary>
+public static class MfaPendingChallenge
+{
+    public const string LoginProvider = "CardVault";
+    public const string TokenName = "mfa-pending";
+}
 
 public record RegisterUserCommand(RegisterRequest Request) : IRequest<IResult>;
 public class RegisterUserCommandHandler : IRequestHandler<RegisterUserCommand, IResult>
@@ -119,10 +133,12 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, IResult>
         if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
             return PasswordCheckGuard.GenericUnauthorized();
 
-        // If user has MFA enabled, require it
+        // If user has MFA enabled, require it: hand back a pending challenge, never a session.
         if (await _users.GetTwoFactorEnabledAsync(user))
         {
-            return Results.Ok(new AuthSessionResponse(true, null, null, "MFA_REQUIRED", null));
+            var pending = _tokens.CreateMfaPendingToken(user);
+            await _users.SetAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName, pending.Jti);
+            return Results.Ok(new AuthSessionResponse(true, null, null, "MFA_REQUIRED", null, pending.Token));
         }
 
         var access = await _tokens.CreateAccessTokenAsync(user);
@@ -143,7 +159,11 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, IResult>
     }
 }
 
-public record MfaEnableCommand(MfaEnableRequest Request) : IRequest<IResult>;
+/// <summary>
+/// G1-T3: enrolment is bound to the authenticated principal (<paramref name="UserId"/> comes
+/// from the caller's claims, never from the body) and requires a fresh password re-check.
+/// </summary>
+public record MfaEnableCommand(string UserId, MfaEnableRequest Request) : IRequest<IResult>;
 public class MfaEnableCommandHandler : IRequestHandler<MfaEnableCommand, IResult>
 {
     private readonly UserManager<AppUser> _users;
@@ -156,7 +176,10 @@ public class MfaEnableCommandHandler : IRequestHandler<MfaEnableCommand, IResult
     public async Task<IResult> Handle(MfaEnableCommand request, CancellationToken cancellationToken)
     {
         var req = request.Request;
-        var user = await _users.FindByEmailAsync(req.Email);
+        if (string.IsNullOrWhiteSpace(request.UserId))
+            return PasswordCheckGuard.GenericUnauthorized();
+
+        var user = await _users.FindByIdAsync(request.UserId);
         if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
             return PasswordCheckGuard.GenericUnauthorized();
 
@@ -187,16 +210,36 @@ public class MfaVerifyCommandHandler : IRequestHandler<MfaVerifyCommand, IResult
         _config = config;
     }
 
+    /// <summary>
+    /// G1-T3: every rejection (bad/expired/forged/consumed token, locked account, wrong code)
+    /// returns the same generic 401. A wrong code counts towards Identity lockout but does
+    /// not burn the challenge; a correct code consumes it before the session is issued.
+    /// </summary>
     public async Task<IResult> Handle(MfaVerifyCommand request, CancellationToken cancellationToken)
     {
         var req = request.Request;
-        var user = await _users.FindByEmailAsync(req.Email);
-        if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
+        var claims = string.IsNullOrWhiteSpace(req.MfaPendingToken) ? null : _tokens.ValidateMfaPendingToken(req.MfaPendingToken);
+        if (claims is null)
             return PasswordCheckGuard.GenericUnauthorized();
 
-        var valid = await _users.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, req.Code);
+        var user = await _users.FindByIdAsync(claims.UserId);
+        if (user is null || await _users.IsLockedOutAsync(user))
+            return PasswordCheckGuard.GenericUnauthorized();
+
+        var recordedJti = await _users.GetAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName);
+        if (recordedJti is null || !FixedTimeEquals(recordedJti, claims.Jti))
+            return PasswordCheckGuard.GenericUnauthorized();
+
+        var valid = await _users.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, req.Code ?? string.Empty);
         if (!valid)
-            return Results.Json(new { message = "Invalid MFA code" }, statusCode: 401);
+        {
+            await _users.AccessFailedAsync(user);
+            return PasswordCheckGuard.GenericUnauthorized();
+        }
+
+        // Consume the challenge first so a concurrent replay cannot race the session issue.
+        await _users.RemoveAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName);
+        await _users.ResetAccessFailedCountAsync(user);
 
         var access = await _tokens.CreateAccessTokenAsync(user);
         var refresh = _tokens.GenerateRefreshToken();
@@ -214,6 +257,9 @@ public class MfaVerifyCommandHandler : IRequestHandler<MfaVerifyCommand, IResult
         var authenticatedUser = await _tokens.BuildAuthenticatedUserAsync(user);
         return Results.Ok(new AuthSessionResponse(false, access, refresh, "OK", authenticatedUser));
     }
+
+    private static bool FixedTimeEquals(string a, string b)
+        => CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(a), Encoding.UTF8.GetBytes(b));
 }
 
 public record RefreshTokenCommand(RefreshRequest Request) : IRequest<IResult>;

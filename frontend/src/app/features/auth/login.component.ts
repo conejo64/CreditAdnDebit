@@ -23,7 +23,7 @@ import { AuthService } from '../../core/auth.service';
             <p class="subtitle">La nueva generación bancaria</p>
           </div>
 
-          <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+          <form *ngIf="!authService.mfaPending(); else mfaStep" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
             
             <div class="input-group" [class.has-error]="isFieldInvalid('email')">
               <label for="email">Correo Electrónico</label>
@@ -94,6 +94,54 @@ import { AuthService } from '../../core/auth.service';
               </ng-container>
             </button>
           </form>
+
+          <!-- G1-T3: second step — the TOTP code for the pending challenge held in memory by AuthService -->
+          <ng-template #mfaStep>
+            <form [formGroup]="mfaForm" (ngSubmit)="onSubmitMfa()" class="fade-in">
+              <p class="mfa-intro">Verificación en dos pasos. Ingrese el código de 6 dígitos de su aplicación de autenticación.</p>
+
+              <div class="input-group" [class.has-error]="isMfaCodeInvalid()">
+                <label for="mfaCode">Código de verificación</label>
+                <div class="input-with-icon">
+                  <span class="material-symbols-rounded icon">pin</span>
+                  <input
+                    type="text"
+                    id="mfaCode"
+                    class="form-control"
+                    formControlName="code"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="6"
+                    placeholder="000000"
+                  >
+                </div>
+                <div class="field-error fade-in" *ngIf="isMfaCodeInvalid()">
+                  <span class="material-symbols-rounded text-sm">error</span>
+                  <span>Ingrese los 6 dígitos del código.</span>
+                </div>
+              </div>
+
+              <div class="auth-error fade-in" *ngIf="authService.authError() as error">
+                <span class="material-symbols-rounded">warning</span>
+                <p>{{ error }}</p>
+              </div>
+
+              <button
+                type="submit"
+                class="btn-primary login-btn"
+                [disabled]="mfaForm.invalid || authService.isSubmitting()"
+              >
+                <ng-container *ngIf="!authService.isSubmitting()">
+                  Verificar
+                </ng-container>
+                <ng-container *ngIf="authService.isSubmitting()">
+                  <span class="loader"></span> Verificando...
+                </ng-container>
+              </button>
+
+              <button type="button" class="link-button" (click)="cancelMfa()">Volver</button>
+            </form>
+          </ng-template>
 
           <div class="login-footer">
             <span class="text-muted">¿No tienes cuenta?</span> <a class="link-styled" href="#">Regístrate aquí</a>
@@ -400,6 +448,30 @@ import { AuthService } from '../../core/auth.service';
       font-size: 0.85rem;
     }
 
+    .mfa-intro {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .link-button {
+      display: block;
+      width: 100%;
+      margin-top: 1rem;
+      background: none;
+      border: none;
+      color: #4f46e5;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .link-button:hover {
+      color: #312e81;
+      text-decoration: underline;
+    }
+
     /* Small animations */
     .fade-in {
       animation: fadeIn 0.3s ease-out;
@@ -441,6 +513,11 @@ export class LoginComponent {
     rememberMe: [false] // Se integra el checkbox al formulario
   });
 
+  // G1-T3: second step of the login — the 6-digit TOTP code.
+  mfaForm: FormGroup = this.fb.group({
+    code: ['', [Validators.required, Validators.pattern(/^\d{6}$/)]]
+  });
+
   // Getter para acceso fácil a los controls en el template
   get f() { return this.loginForm.controls; }
 
@@ -451,6 +528,24 @@ export class LoginComponent {
   isFieldInvalid(field: string): boolean {
     const control = this.loginForm.get(field);
     return !!control && control.invalid && (control.dirty || control.touched);
+  }
+
+  isMfaCodeInvalid(): boolean {
+    const control = this.mfaForm.get('code');
+    return !!control && control.invalid && (control.dirty || control.touched);
+  }
+
+  onSubmitMfa() {
+    if (this.mfaForm.valid) {
+      this.authService.verifyMfa(this.mfaForm.getRawValue().code);
+    } else {
+      this.mfaForm.markAllAsTouched();
+    }
+  }
+
+  cancelMfa() {
+    this.mfaForm.reset({ code: '' });
+    this.authService.cancelMfa();
   }
 
   onSubmit() {

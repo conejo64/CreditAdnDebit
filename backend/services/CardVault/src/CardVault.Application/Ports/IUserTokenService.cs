@@ -17,4 +17,23 @@ public interface IUserTokenService
     // Static helpers exposed as instance for testability
     string GenerateRefreshToken();
     string HashRefreshToken(string refreshToken);
+
+    /// <summary>
+    /// G1-T3: mints the short-lived MFA pending token for <paramref name="user"/>. The caller
+    /// records <see cref="MfaPendingTokenIssue.Jti"/> server-side to make the token single-use.
+    /// </summary>
+    MfaPendingTokenIssue CreateMfaPendingToken(AppUser user);
+
+    /// <summary>
+    /// G1-T3: validates signature, issuer, the dedicated MFA audience, type, purpose and
+    /// expiry of a pending token. Returns null for anything that is not a live pending token
+    /// (including a regular session token).
+    /// </summary>
+    MfaPendingTokenClaims? ValidateMfaPendingToken(string token);
 }
+
+/// <summary>A freshly minted MFA pending token and the identifier recorded for single use.</summary>
+public sealed record MfaPendingTokenIssue(string Token, string Jti, DateTimeOffset ExpiresOn);
+
+/// <summary>The claims the MFA verify step needs from a validated pending token.</summary>
+public sealed record MfaPendingTokenClaims(string UserId, string Jti);

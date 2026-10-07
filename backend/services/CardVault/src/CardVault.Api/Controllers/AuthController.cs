@@ -37,12 +37,20 @@ public class AuthController : ControllerBase
         return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
+    /// <summary>
+    /// G1-T3: enrolment requires an authenticated principal and re-checks the password; it
+    /// always acts on the caller's own identity (user id from claims, never from the body).
+    /// </summary>
     [HttpPost("mfa/enable")]
-    [AllowAnonymous]
+    [Authorize]
     [EnableRateLimiting("auth_mfa")]
     public async Task<IResult> MfaEnable([FromBody] MfaEnableRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new MfaEnableCommand(req), ct);
+        var userId = CurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+            return Results.Unauthorized();
+
+        return await _mediator.Send(new MfaEnableCommand(userId, req), ct);
     }
 
     [HttpPost("mfa/verify")]
@@ -80,16 +88,17 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IResult> Me(CancellationToken ct)
     {
-        var userId =
-            User.FindFirstValue("uid") ??
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
-
+        var userId = CurrentUserId();
         if (string.IsNullOrWhiteSpace(userId))
             return Results.Unauthorized();
 
         return await _mediator.Send(new GetCurrentUserQuery(userId), ct);
     }
+
+    private string? CurrentUserId() =>
+        User.FindFirstValue("uid") ??
+        User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+        User.FindFirstValue("sub");
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]
