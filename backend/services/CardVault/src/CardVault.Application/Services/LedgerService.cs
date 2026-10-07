@@ -18,10 +18,15 @@ public sealed class LedgerService
         _accounting = accounting;
     }
 
+    /// <summary>
+    /// Posts a ledger entry for <paramref name="accountId"/>. The stored amount follows the sign
+    /// contract documented on <see cref="LedgerEntryTypeExtensions"/>: debit types are stored
+    /// positive, credit types (payments, refunds, reversals, chargebacks) are stored negative,
+    /// and signed types keep the caller's sign. Callers may therefore pass either sign.
+    /// </summary>
     public async Task<LedgerEntryEntity> AddEntryAsync(Guid accountId, LedgerEntryType type, decimal amount, string description, DateTimeOffset postedOn, CancellationToken ct)
     {
-        if (type == LedgerEntryType.Payment && amount > 0) amount = -amount; // payments are negative
-        if (type != LedgerEntryType.Payment && amount < 0) amount = Math.Abs(amount);
+        amount = type.NormalizeAmount(amount);
 
         var e = new LedgerEntryEntity
         {

@@ -13,3 +13,47 @@ public enum LedgerEntryType
     AuthorizationHold = 9,
     Clearing = 10
 }
+
+/// <summary>
+/// Sign contract for cardholder ledger entries. The posted balance is the plain sum of
+/// <c>Amount</c>, so the sign of every entry must follow its economic direction:
+/// <list type="bullet">
+///   <item><b>Debit types</b> (<see cref="LedgerEntryType.Purchase"/>, <see cref="LedgerEntryType.Fee"/>,
+///   <see cref="LedgerEntryType.Interest"/>, <see cref="LedgerEntryType.Clearing"/>) increase the
+///   cardholder's debt and are stored <b>positive</b>.</item>
+///   <item><b>Credit types</b> (<see cref="LedgerEntryType.Payment"/>, <see cref="LedgerEntryType.Refund"/>,
+///   <see cref="LedgerEntryType.Reversal"/>, <see cref="LedgerEntryType.Chargeback"/>) reduce the
+///   cardholder's debt and are stored <b>negative</b>.</item>
+///   <item><b>Signed types</b> (<see cref="LedgerEntryType.Adjustment"/>, <see cref="LedgerEntryType.AuthorizationHold"/>)
+///   may legitimately go either way (a hold is placed positive and released with a negative shadow
+///   entry) and keep the sign supplied by the caller.</item>
+/// </list>
+/// <see cref="NormalizeAmount"/> applies the contract to an incoming amount so callers may pass
+/// either sign and still get a correct ledger.
+/// </summary>
+public static class LedgerEntryTypeExtensions
+{
+    public static bool IsDebit(this LedgerEntryType type) => type is
+        LedgerEntryType.Purchase or
+        LedgerEntryType.Fee or
+        LedgerEntryType.Interest or
+        LedgerEntryType.Clearing;
+
+    public static bool IsCredit(this LedgerEntryType type) => type is
+        LedgerEntryType.Payment or
+        LedgerEntryType.Refund or
+        LedgerEntryType.Reversal or
+        LedgerEntryType.Chargeback;
+
+    /// <summary>
+    /// Returns <paramref name="amount"/> with the sign mandated by the contract for
+    /// <paramref name="type"/>: positive for debit types, negative for credit types, unchanged
+    /// for signed types.
+    /// </summary>
+    public static decimal NormalizeAmount(this LedgerEntryType type, decimal amount)
+    {
+        if (type.IsDebit()) return Math.Abs(amount);
+        if (type.IsCredit()) return -Math.Abs(amount);
+        return amount;
+    }
+}

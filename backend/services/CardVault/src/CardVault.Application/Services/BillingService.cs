@@ -51,8 +51,10 @@ public sealed class BillingService
             .OrderBy(x => x.PostedOn)
             .ToListAsync(ct);
 
-        var purchases = cycleEntries.Where(x => x.Type == LedgerEntryType.Purchase || x.Type == LedgerEntryType.Clearing || x.Type == LedgerEntryType.Refund || x.Type == LedgerEntryType.Reversal || x.Type == LedgerEntryType.Chargeback || x.Type == LedgerEntryType.Adjustment).Sum(x => x.Amount);
-        var payments = cycleEntries.Where(x => x.Type == LedgerEntryType.Payment).Sum(x => x.Amount); // negative
+        // Purchases: debit purchases, clearings and signed adjustments. Credit types (refund, reversal,
+        // chargeback) are negative by the ledger sign contract and are reported with payments.
+        var purchases = cycleEntries.Where(x => x.Type == LedgerEntryType.Purchase || x.Type == LedgerEntryType.Clearing || x.Type == LedgerEntryType.Adjustment).Sum(x => x.Amount);
+        var payments = cycleEntries.Where(x => x.Type == LedgerEntryType.Payment || x.Type == LedgerEntryType.Refund || x.Type == LedgerEntryType.Reversal || x.Type == LedgerEntryType.Chargeback).Sum(x => x.Amount); // negative
         var fees = cycleEntries.Where(x => x.Type == LedgerEntryType.Fee).Sum(x => x.Amount);
         var interest = cycleEntries.Where(x => x.Type == LedgerEntryType.Interest).Sum(x => x.Amount);
 

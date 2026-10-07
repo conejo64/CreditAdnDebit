@@ -371,17 +371,21 @@ public sealed class SwitchTxnConsumer : BackgroundService
 
         st.PreviousBalance = prevBalance;
 
-        // Purchases include PURCHASE + CLEARING + refunds/reversals/chargebacks/adjustments. Holds are excluded.
+        // Purchases include PURCHASE + CLEARING + signed adjustments. Holds are excluded.
+        // Credit types (refund, reversal, chargeback) are negative and reported with payments,
+        // mirroring BillingService.GenerateStatementAsync.
         st.Purchases = cycleEntries.Where(x =>
                 x.Type == LedgerEntryType.Purchase ||
                 x.Type == LedgerEntryType.Clearing ||
-                x.Type == LedgerEntryType.Refund ||
-                x.Type == LedgerEntryType.Reversal ||
-                x.Type == LedgerEntryType.Chargeback ||
                 x.Type == LedgerEntryType.Adjustment)
             .Sum(x => x.Amount);
 
-        st.Payments = cycleEntries.Where(x => x.Type == LedgerEntryType.Payment).Sum(x => x.Amount);
+        st.Payments = cycleEntries.Where(x =>
+                x.Type == LedgerEntryType.Payment ||
+                x.Type == LedgerEntryType.Refund ||
+                x.Type == LedgerEntryType.Reversal ||
+                x.Type == LedgerEntryType.Chargeback)
+            .Sum(x => x.Amount);
         st.Fees = cycleEntries.Where(x => x.Type == LedgerEntryType.Fee).Sum(x => x.Amount);
         st.Interest = cycleEntries.Where(x => x.Type == LedgerEntryType.Interest).Sum(x => x.Amount);
 
