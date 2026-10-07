@@ -26,6 +26,14 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The legacy ledger backfill script is a runbook artefact, not source. It is linked here so
+       Ledger/LegacyLedgerBackfillIntegrationTests.cs runs the committed file against a real database. -->
+  <ItemGroup>
+    <None Include="..\..\..\..\..\docs\runbooks\sql\cardvault-ledger-legacy-backfill.sql"
+          Link="Sql\cardvault-ledger-legacy-backfill.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\CardVault.Application\CardVault.Application.csproj" />
     <ProjectReference Include="..\..\src\CardVault.Infrastructure.Persistence\CardVault.Infrastructure.Persistence.csproj" />

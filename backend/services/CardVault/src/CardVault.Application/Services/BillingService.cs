@@ -3,6 +3,8 @@ using CardVault.Infrastructure.Persistence;
 using CardVault.Infrastructure.Persistence.Billing;
 using CardVault.Infrastructure.Persistence.Issuer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CardVault.Application.Services;
 
@@ -12,13 +14,15 @@ public sealed class BillingService
     private readonly MinimumPaymentService _minPay;
     private readonly CreditPolicyService _policies;
     private readonly AuditService _audit;
+    private readonly ILogger<BillingService> _logger;
 
-    public BillingService(CardVaultDbContext db, MinimumPaymentService minPay, CreditPolicyService policies, AuditService audit)
+    public BillingService(CardVaultDbContext db, MinimumPaymentService minPay, CreditPolicyService policies, AuditService audit, ILogger<BillingService>? logger = null)
     {
         _db = db;
         _minPay = minPay;
         _policies = policies;
         _audit = audit;
+        _logger = logger ?? NullLogger<BillingService>.Instance;
     }
 
     public async Task<StatementEntity> GenerateStatementAsync(Guid accountId, DateTime cycleStart, DateTime cycleEnd, DateTime statementDate, DateTime? dueDateOverride, CancellationToken ct)
@@ -45,6 +49,14 @@ public sealed class BillingService
 
         var cycleStartDt = cycleStart;
         var cycleEndDt = cycleEnd;
+
+        // Active plans are resolved first so that a legacy plan can be healed before the ledger is
+        // read: the heal changes the type of the original entry, which decides whether it belongs
+        // to the purchase base of this cycle or to the parked deferred principal.
+        var activePlans = await _db.InstallmentPlans
+            .Where(p => p.AccountId == accountId && p.Status == InstallmentPlanStatus.Active)
+            .ToListAsync(ct);
+        var billablePlans = await HealLegacyPlansAsync(activePlans, ct);
 
         // Previous balance: billable ledger before the cycle (see LedgerEntryTypeExtensions.IsBillable).
         // Authorization holds are shadow entries: an open hold is not posted debt and a captured hold is
@@ -79,10 +91,8 @@ public sealed class BillingService
         // Installments due in this cycle. Each one is billed once: its principal moves from the
         // DeferredPrincipal bucket into an Installment ledger debit, and its plan interest is posted
         // as an Interest entry so it lands in the interest bucket and never compounds through daily accrual.
-        var activePlans = await _db.InstallmentPlans
-            .Where(p => p.AccountId == accountId && p.Status == InstallmentPlanStatus.Active)
-            .ToListAsync(ct);
-        var activePlanIds = activePlans.Select(p => p.Id).ToList();
+        // Only plans with a positive DeferredPrincipal counterpart are billed (see HealLegacyPlansAsync).
+        var activePlanIds = billablePlans.Select(p => p.Id).ToList();
 
         var dueInstallments = await _db.AmortizationSchedules
             .Where(x => x.Status == InstallmentStatus.Pending && x.DueDate <= cycleEndDt && activePlanIds.Contains(x.PlanId))
@@ -154,7 +164,7 @@ public sealed class BillingService
         // statement, plus the matching statement lines. The DeferredPrincipal release has no line of
         // its own; it only keeps the ledger exposure constant while principal becomes billable.
         var billedOn = new DateTimeOffset(DateTime.SpecifyKind(cycleEnd, DateTimeKind.Utc), TimeSpan.Zero);
-        var plansById = activePlans.ToDictionary(p => p.Id);
+        var plansById = billablePlans.ToDictionary(p => p.Id);
 
         foreach (var inst in dueInstallments)
         {
@@ -236,6 +246,80 @@ public sealed class BillingService
             ct: ct);
 
         return st;
+    }
+
+    /// <summary>
+    /// Defensive guard for installment plans written before the deferred-principal model (Gate 0 /
+    /// T2b). A plan may only release principal when its original ledger entry is a positive
+    /// <see cref="LedgerEntryType.DeferredPrincipal"/>; otherwise the negative release posted at billing
+    /// would have no counterpart and the original would stay in the purchase base (double billing).
+    /// <para>
+    /// A legacy original still typed <see cref="LedgerEntryType.Clearing"/> or <see cref="LedgerEntryType.Purchase"/>
+    /// is reclassified in flight, exactly as <see cref="InstallmentService.DeferPurchaseAsync"/> would have done:
+    /// same amount, positive, so the account exposure is unchanged. This self-heals one plan at a time and
+    /// is idempotent; the one-off SQL backfill (<c>docs/runbooks/cardvault-ledger-legacy-backfill.md</c>)
+    /// does the same for a whole database. A plan whose original entry is missing or has an unexpected type
+    /// cannot be healed and is left out of billing for a human to reconcile; its schedule stays Pending.
+    /// </para>
+    /// </summary>
+    /// <returns>The plans whose installments may be billed in this cycle.</returns>
+    private async Task<List<InstallmentPlanEntity>> HealLegacyPlansAsync(List<InstallmentPlanEntity> activePlans, CancellationToken ct)
+    {
+        if (activePlans.Count == 0) return activePlans;
+
+        var originalIds = activePlans.Where(p => p.OriginalLedgerEntryId is not null).Select(p => p.OriginalLedgerEntryId!.Value).ToList();
+        var originals = await _db.LedgerEntries
+            .Where(e => originalIds.Contains(e.Id))
+            .ToDictionaryAsync(e => e.Id, ct);
+
+        var billable = new List<InstallmentPlanEntity>(activePlans.Count);
+        var healed = 0;
+
+        foreach (var plan in activePlans)
+        {
+            if (plan.OriginalLedgerEntryId is not { } originalId || !originals.TryGetValue(originalId, out var original))
+            {
+                _logger.LogError(
+                    "Installment plan {PlanId} on account {AccountId} has no original ledger entry (OriginalLedgerEntryId={OriginalLedgerEntryId}); its installments are not billed until reconciled",
+                    plan.Id, plan.AccountId, plan.OriginalLedgerEntryId);
+                continue;
+            }
+
+            switch (original.Type)
+            {
+                case LedgerEntryType.DeferredPrincipal:
+                    billable.Add(plan);
+                    break;
+
+                case LedgerEntryType.Clearing:
+                case LedgerEntryType.Purchase:
+                    _logger.LogWarning(
+                        "Installment plan {PlanId} on account {AccountId} was created before the deferred-principal model: original ledger entry {LedgerEntryId} is typed {LegacyType} and is reclassified to DeferredPrincipal in flight (amount {Amount})",
+                        plan.Id, plan.AccountId, original.Id, original.Type, Math.Abs(original.Amount));
+                    original.Type = LedgerEntryType.DeferredPrincipal;
+                    original.Amount = Math.Abs(original.Amount);
+                    healed++;
+                    billable.Add(plan);
+                    break;
+
+                default:
+                    _logger.LogError(
+                        "Installment plan {PlanId} on account {AccountId} points to ledger entry {LedgerEntryId} of type {Type}, which cannot back deferred principal; its installments are not billed until reconciled",
+                        plan.Id, plan.AccountId, original.Id, original.Type);
+                    break;
+            }
+        }
+
+        // The ledger queries that follow filter by Type in the store, so the reclassification must be
+        // persisted before they run; otherwise the healed row would still be selected as a Clearing.
+        // The heal is a self-contained, idempotent correction, so committing it ahead of the statement
+        // is safe even if statement generation fails afterwards.
+        if (healed > 0)
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return billable;
     }
 
     public async Task<StatementEntity> ApplyStatementPaymentAsync(Guid statementId, decimal amount, DateTimeOffset postedOn, CancellationToken ct)
