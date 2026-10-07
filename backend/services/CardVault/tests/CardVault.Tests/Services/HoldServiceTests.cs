@@ -291,7 +291,7 @@ public sealed class HoldServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ReleaseAsync_ShouldPostReversalLedgerEntry()
+    public async Task ReleaseAsync_ShouldNotPostBalanceAffectingReversal()
     {
         var (account, _) = await SeedAccountAsync(creditLimit: 1000m);
         await AuthorizeAsync(account.Id, stan: "S600", rrn: "R600", amount: 100m);
@@ -301,8 +301,47 @@ public sealed class HoldServiceTests : IDisposable
 
         var reversal = _db.LedgerEntries
             .FirstOrDefault(x => x.AccountId == account.Id && x.Type == LedgerEntryType.Reversal);
-        reversal.Should().NotBeNull();
-        reversal!.Amount.Should().Be(-100m, "reversal amount must be negative");
+        reversal.Should().BeNull("releasing a hold is not a posted transaction and must not create a Reversal");
+
+        var releaseEntry = _db.LedgerEntries
+            .Where(x => x.AccountId == account.Id && x.Type == LedgerEntryType.AuthorizationHold && x.Amount < 0)
+            .ToList();
+        releaseEntry.Should().ContainSingle("the release is recorded as a shadow entry symmetric to the hold")
+            .Which.Amount.Should().Be(-100m);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ShouldRestoreAvailableCreditToPreAuthorizationValue()
+    {
+        var (account, _) = await SeedAccountAsync(creditLimit: 1000m);
+        var credit = _sp.GetRequiredService<AvailableCreditService>();
+        var before = await credit.GetAsync(account.Id, CancellationToken.None);
+
+        await AuthorizeAsync(account.Id, stan: "S610", rrn: "R610", amount: 100m);
+        await _sut.ReleaseAsync(account.Id, "VISA", "0400", "S610", "R610",
+            null, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        var after = await credit.GetAsync(account.Id, CancellationToken.None);
+        after.AvailableCredit.Should().Be(before.AvailableCredit, "a released hold must not inflate available credit");
+        after.PostedBalance.Should().Be(before.PostedBalance, "the hold lifecycle never changes the posted balance");
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_PartiallyCapturedHold_ShouldOnlyKeepCapturedAmountPosted()
+    {
+        var (account, _) = await SeedAccountAsync(creditLimit: 1000m);
+        await AuthorizeAsync(account.Id, stan: "S620", rrn: "R620", amount: 300m);
+        await _sut.CaptureAsync(account.Id, "VISA", "0200", "S620", "R620",
+            null, 120m, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        await _sut.ReleaseAsync(account.Id, "VISA", "0400", "S620", "R620",
+            null, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        var credit = await _sp.GetRequiredService<AvailableCreditService>()
+            .GetAsync(account.Id, CancellationToken.None);
+        credit.PostedBalance.Should().Be(120m, "only the cleared amount is posted");
+        credit.ActiveHolds.Should().Be(0m);
+        credit.AvailableCredit.Should().Be(880m, "limit minus the cleared amount, with the remaining hold released");
     }
 
     [Fact]
@@ -341,6 +380,7 @@ public sealed class HoldServiceTests : IDisposable
         // First release
         await _sut.ReleaseAsync(account.Id, "VISA", "0400", "S800", "R800",
             null, DateTimeOffset.UtcNow, CancellationToken.None);
+        var ledgerCountAfterFirstRelease = _db.LedgerEntries.Count(x => x.AccountId == account.Id);
 
         // Second release of same hold — should return hold unchanged (already Released)
         var second = await _sut.ReleaseAsync(account.Id, "VISA", "0400", "S800", "R800",
@@ -349,10 +389,10 @@ public sealed class HoldServiceTests : IDisposable
         second.Should().NotBeNull();
         second!.Status.Should().Be(HoldStatus.Released, "a released hold must not change state");
 
-        // No additional reversal ledger entry should have been posted
-        var reversals = _db.LedgerEntries
-            .Where(x => x.AccountId == account.Id && x.Type == LedgerEntryType.Reversal)
-            .ToList();
-        reversals.Should().HaveCount(1, "only one reversal entry should exist");
+        // No additional ledger entry should have been posted
+        _db.LedgerEntries.Count(x => x.AccountId == account.Id)
+            .Should().Be(ledgerCountAfterFirstRelease, "a second release must not post anything");
+        _db.LedgerEntries.Count(x => x.AccountId == account.Id && x.Type == LedgerEntryType.Reversal)
+            .Should().Be(0, "hold release never posts a Reversal");
     }
 }

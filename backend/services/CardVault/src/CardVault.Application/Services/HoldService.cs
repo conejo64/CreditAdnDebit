@@ -180,12 +180,13 @@ public sealed class HoldService
         if (hold is null) return null;
         if (hold.Status != HoldStatus.Active && hold.Status != HoldStatus.PartiallyCaptured) return hold;
 
-        // Release by posting a reversal of the hold (negative hold)
+        // Release the remaining pending amount. The hold is a shadow item, so the release is a
+        // negative AuthorizationHold shadow entry (excluded from the posted balance), never a Reversal.
         _db.LedgerEntries.Add(new LedgerEntryEntity
         {
             Id = Guid.NewGuid(),
             AccountId = accountId,
-            Type = LedgerEntryType.Reversal,
+            Type = LedgerEntryType.AuthorizationHold,
             Amount = -Math.Abs(hold.Amount - hold.CapturedAmount),
             Description = $"AUTH RELEASE {network} MTI:{mti} STAN:{stan} RRN:{rrn}",
             PostedOn = postedOn,
