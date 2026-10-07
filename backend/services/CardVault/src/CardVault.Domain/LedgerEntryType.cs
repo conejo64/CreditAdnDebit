@@ -41,9 +41,11 @@ public enum LedgerEntryType
 ///   positive and released with a negative shadow entry; deferred principal is parked positive and
 ///   released negative as installments are billed) and keep the sign supplied by the caller.</item>
 /// </list>
-/// <see cref="DeferredPrincipal"/> is the one type that belongs to the account exposure but not to the
-/// billable balance: statement balances and interest accrual exclude it (see <see cref="IsBillable"/>),
-/// while available credit keeps counting it.
+/// Two types belong to the account exposure but not to the billable balance (see <see cref="IsBillable"/>):
+/// <see cref="LedgerEntryType.AuthorizationHold"/> is a shadow of a pending authorization (an open hold is
+/// not posted debt; a captured one is already counted through its <see cref="LedgerEntryType.Clearing"/>),
+/// and <see cref="DeferredPrincipal"/> is parked principal billed later. Statement balances and interest
+/// accrual exclude both, while available credit keeps counting them.
 /// <see cref="NormalizeAmount"/> applies the contract to an incoming amount so callers may pass
 /// either sign and still get a correct ledger.
 /// </summary>
@@ -58,10 +60,14 @@ public static class LedgerEntryTypeExtensions
 
     /// <summary>
     /// True for every entry that is part of the balance the cardholder is billed for and pays
-    /// interest on. Only <see cref="LedgerEntryType.DeferredPrincipal"/> is excluded: it is owed,
-    /// and consumes credit line, but is billed later through <see cref="LedgerEntryType.Installment"/>.
+    /// interest on. Excluded: <see cref="LedgerEntryType.AuthorizationHold"/> (a shadow of a pending
+    /// authorization; the debt, if any, arrives as a <see cref="LedgerEntryType.Clearing"/>) and
+    /// <see cref="LedgerEntryType.DeferredPrincipal"/> (owed and consuming credit line, but billed later
+    /// through <see cref="LedgerEntryType.Installment"/>). EF queries cannot translate this method, so
+    /// the billing and accrual services repeat the two exclusions inline and reference it.
     /// </summary>
-    public static bool IsBillable(this LedgerEntryType type) => type != LedgerEntryType.DeferredPrincipal;
+    public static bool IsBillable(this LedgerEntryType type) => type is not
+        (LedgerEntryType.AuthorizationHold or LedgerEntryType.DeferredPrincipal);
 
     public static bool IsCredit(this LedgerEntryType type) => type is
         LedgerEntryType.Payment or

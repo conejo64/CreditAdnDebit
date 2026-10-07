@@ -58,8 +58,12 @@ public class ApplyPaymentCommandHandler : IRequestHandler<ApplyPaymentCommand, I
     {
         var req = request.Request;
         var postedOn = req.PostedOn ?? DateTimeOffset.UtcNow;
-        var st = await _billing.ApplyStatementPaymentAsync(request.Id, req.Amount, postedOn, cancellationToken);
+
+        // Allocate first (interest -> fees -> principal), then post the payment: the statement's
+        // totals and minimum payment are recomputed from the buckets as they stand AFTER the
+        // allocation, so the response and the persisted statement reflect what is still owed.
         var alloc = await _allocator.AllocateAsync(request.Id, req.Amount, cancellationToken);
+        var st = await _billing.ApplyStatementPaymentAsync(request.Id, req.Amount, postedOn, cancellationToken);
         return Results.Ok(new { statement = st, allocation = new { toInterest = alloc.toInterest, toFees = alloc.toFees, toPrincipal = alloc.toPrincipal } });
     }
 }

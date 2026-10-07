@@ -37,18 +37,26 @@ public sealed class BillingService
         var cycleStartDt = cycleStart;
         var cycleEndDt = cycleEnd;
 
-        // Previous balance: billable ledger before the cycle. Deferred principal is owed but is
-        // billed through installments, so it never enters a statement balance directly.
+        // Previous balance: billable ledger before the cycle (see LedgerEntryTypeExtensions.IsBillable).
+        // Authorization holds are shadow entries: an open hold is not posted debt and a captured hold is
+        // already counted through its Clearing. Deferred principal is owed but is billed through
+        // installments, so it never enters a statement balance directly.
         var prevBalance = await _db.LedgerEntries.AsNoTracking()
-            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStartDt && x.Type != LedgerEntryType.DeferredPrincipal)
+            .Where(x => x.AccountId == accountId &&
+                        x.PostedOn < cycleStartDt &&
+                        x.Type != LedgerEntryType.AuthorizationHold &&
+                        x.Type != LedgerEntryType.DeferredPrincipal)
             .SumAsync(x => x.Amount, ct);
 
-        // Cycle entries not yet assigned to a statement
+        // Billable cycle entries not yet assigned to a statement. Shadow and parked entries are left
+        // out entirely: they are never invoiced, so they get no statement line and keep StatementId null.
         var cycleEntries = await _db.LedgerEntries
             .Where(x => x.AccountId == accountId &&
                         x.PostedOn >= cycleStartDt &&
                         x.PostedOn <= cycleEndDt &&
-                        x.StatementId == null)
+                        x.StatementId == null &&
+                        x.Type != LedgerEntryType.AuthorizationHold &&
+                        x.Type != LedgerEntryType.DeferredPrincipal)
             .OrderBy(x => x.PostedOn)
             .ToListAsync(ct);
 
@@ -228,6 +236,9 @@ public sealed class BillingService
         var st = await _db.Statements.FirstOrDefaultAsync(x => x.Id == statementId, ct);
         if (st is null) throw new InvalidOperationException("Statement not found");
 
+        // The payment settles this statement, but as ledger activity it belongs to the cycle it is
+        // posted in: it stays unassigned so the next GenerateStatementAsync lists it and nets it
+        // against the carried balance. Stamping it with the closed statement would hide it forever.
         _db.LedgerEntries.Add(new LedgerEntryEntity
         {
             Id = Guid.NewGuid(),
@@ -236,17 +247,20 @@ public sealed class BillingService
             Amount = -Math.Abs(amount),
             Description = "PAYMENT - Statement payment",
             PostedOn = postedOn,
-            StatementId = st.Id
+            StatementId = null
         });
+
+        // A legacy statement has no buckets yet; materialize them from the accrued figures before the
+        // payment is recorded, otherwise the all-zero buckets below would read as "fully paid".
+        _minPay.ApproximateLegacyBuckets(st);
 
         st.PaidAmount += amount;
 
-        // totals from buckets
-        if (st.PrincipalDue + st.InterestDue + st.FeesDue > 0)
-        {
-            st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
-            st.NewBalance = st.TotalPaymentDue;
-        }
+        // Totals follow the buckets as they stand now. When the caller has already allocated the
+        // payment (ApplyPaymentCommandHandler), this is the post-allocation remainder; a fully paid
+        // statement therefore ends at zero instead of keeping its pre-payment totals.
+        st.TotalPaymentDue = st.PrincipalDue + st.InterestDue + st.FeesDue;
+        st.NewBalance = st.TotalPaymentDue;
 
         var policy = await _minPay.GetDefaultAsync(ct);
         st.MinimumPayment = _minPay.CalculateMinimum(st, policy);

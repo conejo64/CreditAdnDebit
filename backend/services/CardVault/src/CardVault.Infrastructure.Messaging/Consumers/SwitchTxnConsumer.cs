@@ -361,10 +361,14 @@ public sealed class SwitchTxnConsumer : BackgroundService
         var cycleStart = st.CycleStart;
         var cycleEnd = st.CycleEnd;
 
-        // Deferred principal is owed but billed through installments; it never enters a statement
-        // balance directly (mirrors BillingService.GenerateStatementAsync).
+        // Billable ledger before the cycle (mirrors BillingService.GenerateStatementAsync): authorization
+        // holds are shadow entries and never posted debt; deferred principal is owed but billed through
+        // installments, so neither enters a statement balance directly.
         var prevBalance = await db.LedgerEntries.AsNoTracking()
-            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStart && x.Type != LedgerEntryType.DeferredPrincipal)
+            .Where(x => x.AccountId == accountId &&
+                        x.PostedOn < cycleStart &&
+                        x.Type != LedgerEntryType.AuthorizationHold &&
+                        x.Type != LedgerEntryType.DeferredPrincipal)
             .SumAsync(x => x.Amount, ct);
 
         var cycleEntries = await db.LedgerEntries.AsNoTracking()
