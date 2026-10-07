@@ -83,7 +83,9 @@ jobs:
     env:
       # Consumed by PostgresFixture: an administrative connection; the fixture creates one
       # fresh database per test on this server.
-      CARDVAULT_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres"
+      # The password is the throwaway credential of the ephemeral Postgres service container above
+      # (POSTGRES_PASSWORD); it never leaves this job and protects nothing. Allowed for gitleaks.
+      CARDVAULT_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres" # gitleaks:allow
 
     steps:
       - name: Checkout
