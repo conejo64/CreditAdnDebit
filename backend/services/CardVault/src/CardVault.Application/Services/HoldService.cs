@@ -26,18 +26,44 @@ public sealed class HoldService
         _sp = sp;
     }
 
+    /// <summary>
+    /// Authorizes an amount against an account and places the hold.
+    /// <para>
+    /// On a relational provider the idempotency lookup, the risk decision (which reads available
+    /// credit) and the hold insert run inside one transaction that first takes a row lock on the
+    /// account (<c>SELECT ... FOR UPDATE</c>). Two authorizations racing on the same account are
+    /// therefore serialized: the second one waits, then reads the first hold and is declined when
+    /// the sum exceeds the limit. A row lock was chosen over a serializable transaction because it
+    /// is deterministic: no <c>40001</c> retry loop and no false conflicts from unrelated accounts.
+    /// </para>
+    /// <para>
+    /// The InMemory provider used by the unit tests has neither transactions nor raw SQL, so the
+    /// same steps run unlocked there; behaviour is otherwise unchanged.
+    /// </para>
+    /// </summary>
     public async Task<AuthorizationHoldEntity> AuthorizeAsync(Guid accountId, Guid? cardId, string network, string mti, string stan, string rrn, string? ode90, string? merchantId, string? mcc, string? countryCode, string? pinBlock, decimal amount, DateTimeOffset postedOn, CancellationToken ct)
     {
-        var existing = await _db.AuthorizationHolds.FirstOrDefaultAsync(x =>
-            x.AccountId == accountId && x.Network == network && x.Stan == stan && x.Rrn == rrn, ct);
-
-        if (existing is not null) return existing;
-
-        
-        // v44 - risk decision (MCC / available credit / policy / PIN)
         var risk = _sp.GetRequiredService<RiskDecisionService>();
         var available = _sp.GetRequiredService<AvailableCreditService>();
-        var decision = await risk.DecideAuthAsync(accountId, cardId, Math.Abs(amount), mcc, countryCode, pinBlock, ct);
+
+        AuthorizationOutcome outcome;
+        if (_db.Database.IsRelational() && _db.Database.CurrentTransaction is null)
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            await LockAccountRowAsync(accountId, ct);
+            outcome = await DecideAndPlaceHoldAsync(risk, available, accountId, cardId, network, mti, stan, rrn, ode90, merchantId, mcc, countryCode, pinBlock, amount, postedOn, ct);
+            // Committing on a decline writes nothing; it only releases the account lock before the
+            // decline is published and audited outside the transaction.
+            await tx.CommitAsync(ct);
+        }
+        else
+        {
+            outcome = await DecideAndPlaceHoldAsync(risk, available, accountId, cardId, network, mti, stan, rrn, ode90, merchantId, mcc, countryCode, pinBlock, amount, postedOn, ct);
+        }
+
+        if (outcome.IsReplay) return outcome.Hold!;
+
+        var decision = outcome.Decision;
         if (!decision.Approved)
         {
             var pub = _sp.GetRequiredService<IAuthDecisionPublisher>();
@@ -60,6 +86,51 @@ public sealed class HoldService
             await _audit.WriteAsync("risk.auth.declined", new { accountId, network, mti, stan, rrn, merchantId, mcc, amount, reason = decision.Reason }, null, System.Diagnostics.Activity.Current?.TraceId.ToString(), ct);
             throw new InvalidOperationException($"AUTH_DECLINED:{decision.Reason}");
         }
+
+        var hold = outcome.Hold!;
+
+        await _audit.WriteAsync("holds.auth.approved",
+            new { accountId, network, mti, stan, rrn, ode90, merchantId = hold.MerchantId, mcc = hold.MerchantCategory, amount },
+            correlationId: null,
+            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
+            ct: ct);
+
+        if (decision.Reason == "OVERLIMIT_ALLOWED" && outcome.AvailableBefore is not null)
+        {
+            var limits = _sp.GetRequiredService<CreditLimitManagementService>();
+            await limits.RecordOverlimitAsync(accountId, hold.Id, Math.Abs(amount), outcome.AvailableBefore.AvailableCredit, ct);
+        }
+
+        return hold;
+    }
+
+    private sealed record AuthorizationOutcome(
+        bool IsReplay,
+        RiskDecisionService.RiskDecision Decision,
+        AuthorizationHoldEntity? Hold,
+        AvailableCreditService.AvailableCreditResult? AvailableBefore);
+
+    /// <summary>
+    /// Serializes authorizations per account: blocks until any other transaction holding this
+    /// account row commits or rolls back. Relational providers only.
+    /// </summary>
+    private Task LockAccountRowAsync(Guid accountId, CancellationToken ct)
+        => _db.Database.ExecuteSqlAsync($"SELECT 1 FROM \"Accounts\" WHERE \"Id\" = {accountId} FOR UPDATE", ct);
+
+    /// <summary>
+    /// The critical section: idempotency lookup, risk decision over the current available credit,
+    /// and hold placement. Runs under the account row lock on relational providers.
+    /// </summary>
+    private async Task<AuthorizationOutcome> DecideAndPlaceHoldAsync(RiskDecisionService risk, AvailableCreditService available, Guid accountId, Guid? cardId, string network, string mti, string stan, string rrn, string? ode90, string? merchantId, string? mcc, string? countryCode, string? pinBlock, decimal amount, DateTimeOffset postedOn, CancellationToken ct)
+    {
+        var existing = await _db.AuthorizationHolds.FirstOrDefaultAsync(x =>
+            x.AccountId == accountId && x.Network == network && x.Stan == stan && x.Rrn == rrn, ct);
+
+        if (existing is not null) return new(true, new(true, "REPLAY"), existing, null);
+
+        // v44 - risk decision (card/account state / MCC / available credit / policy / PIN)
+        var decision = await risk.DecideAuthAsync(accountId, cardId, Math.Abs(amount), mcc, countryCode, pinBlock, ct);
+        if (!decision.Approved) return new(false, decision, null, null);
 
         var availableBefore = decision.Reason == "OVERLIMIT_ALLOWED"
             ? await available.GetAsync(accountId, ct)
@@ -108,19 +179,7 @@ public sealed class HoldService
         _db.AuthorizationHolds.Add(hold);
         await _db.SaveChangesAsync(ct);
 
-        await _audit.WriteAsync("holds.auth.approved",
-            new { accountId, network, mti, stan, rrn, ode90, merchantId = hold.MerchantId, mcc = hold.MerchantCategory, amount },
-            correlationId: null,
-            traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
-            ct: ct);
-
-        if (decision.Reason == "OVERLIMIT_ALLOWED" && availableBefore is not null)
-        {
-            var limits = _sp.GetRequiredService<CreditLimitManagementService>();
-            await limits.RecordOverlimitAsync(accountId, hold.Id, Math.Abs(amount), availableBefore.AvailableCredit, ct);
-        }
-
-        return hold;
+        return new(false, decision, hold, availableBefore);
     }
 
     public async Task<AuthorizationHoldEntity?> CaptureAsync(Guid accountId, string network, string mti, string stan, string rrn, string? ode90, decimal amount, DateTimeOffset postedOn, CancellationToken ct)
@@ -180,12 +239,13 @@ public sealed class HoldService
         if (hold is null) return null;
         if (hold.Status != HoldStatus.Active && hold.Status != HoldStatus.PartiallyCaptured) return hold;
 
-        // Release by posting a reversal of the hold (negative hold)
+        // Release the remaining pending amount. The hold is a shadow item, so the release is a
+        // negative AuthorizationHold shadow entry (excluded from the posted balance), never a Reversal.
         _db.LedgerEntries.Add(new LedgerEntryEntity
         {
             Id = Guid.NewGuid(),
             AccountId = accountId,
-            Type = LedgerEntryType.Reversal,
+            Type = LedgerEntryType.AuthorizationHold,
             Amount = -Math.Abs(hold.Amount - hold.CapturedAmount),
             Description = $"AUTH RELEASE {network} MTI:{mti} STAN:{stan} RRN:{rrn}",
             PostedOn = postedOn,

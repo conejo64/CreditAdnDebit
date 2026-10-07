@@ -2,6 +2,7 @@ using CardVault.Application.Features.Issuer.Commands;
 using CardVault.Application.Contracts;
 using CardVault.Application.Services;
 using CardVault.Domain;
+using CardVault.Infrastructure.Persistence.Catalog;
 using CardVault.Infrastructure.Persistence.Issuer;
 using CardVault.Tests.Infrastructure;
 using FluentAssertions;
@@ -25,7 +26,11 @@ public sealed class CardLifecycleHandlerTests : IDisposable
     {
         _db = TestDbContextFactory.Create();
         _auditService = new AuditService(_db);
-        _issuerService = new IssuerService(_db, _auditService);
+        _issuerService = new IssuerService(_db, _auditService, TestVaultCrypto.Create());
+
+        // Issuance requires an enabled BIN range for the BIN used by the helpers below.
+        _db.BinRanges.Add(new BinRangeEntity { BinStart = 400000, BinEnd = 499999, Brand = "VISA", Product = "CREDIT", Enabled = true });
+        _db.SaveChanges();
     }
 
     public void Dispose() => _db.Dispose();
@@ -289,7 +294,7 @@ public sealed class CardLifecycleHandlerTests : IDisposable
         var account = await _issuerService.CreateAccountAsync(
             customer.Id, AccountType.Credit, "VISA", 5000m, CancellationToken.None);
         var card = await _issuerService.IssueCardAsync(
-            account.Id, "411111", "4111111111111111", "2812", CancellationToken.None);
+            account.Id, "411111", "2812", CancellationToken.None);
         await _issuerService.ChangeStatusAsync(card.Id, CardStatus.Active, "activated", CancellationToken.None);
         return card;
     }

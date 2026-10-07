@@ -5,6 +5,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CardVault.Application.Services;
 
+/// <summary>
+/// Converts an unbilled purchase into an installment plan.
+///
+/// Ledger mechanism: the original entry is reclassified to <see cref="LedgerEntryType.DeferredPrincipal"/>.
+/// It keeps its amount, so the account exposure (available credit) is unchanged, but statement
+/// balances and daily interest skip it. <see cref="BillingService"/> later moves each due installment
+/// out of that bucket (negative <see cref="LedgerEntryType.DeferredPrincipal"/>) into a billable
+/// <see cref="LedgerEntryType.Installment"/> debit, so at every point in time
+/// original purchase == remaining deferred principal + billed installments.
+///
+/// APR: taken from the request when supplied, otherwise from the product's
+/// <c>DefaultInstallmentApr</c>; either way it must not exceed the product's optional
+/// <c>MaxInstallmentApr</c>. There is no hard-coded fallback rate.
+/// </summary>
 public sealed class InstallmentService
 {
     private readonly CardVaultDbContext _db;
@@ -18,6 +32,9 @@ public sealed class InstallmentService
 
     public async Task<InstallmentPlanEntity> DeferPurchaseAsync(Guid accountId, Guid ledgerEntryId, int installments, decimal? customApr, CancellationToken ct)
     {
+        if (installments < 1)
+            throw new InvalidOperationException("An installment plan needs at least one installment");
+
         var entry = await _db.LedgerEntries.FirstOrDefaultAsync(x => x.Id == ledgerEntryId && x.AccountId == accountId, ct)
             ?? throw new InvalidOperationException("Transaction not found");
 
@@ -27,21 +44,21 @@ public sealed class InstallmentService
         if (entry.StatementId != null)
             throw new InvalidOperationException("Transaction already invoiced in a statement");
 
-        // Check if already deferred
         var alreadyDeferred = await _db.InstallmentPlans.AnyAsync(x => x.OriginalLedgerEntryId == ledgerEntryId, ct);
         if (alreadyDeferred) throw new InvalidOperationException("Transaction already deferred");
 
         var acc = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, ct)
             ?? throw new InvalidOperationException("Account not found");
 
-        var apr = customApr ?? 0.35m; // Default or from policy
-        var dailyRate = apr / 365m;
+        var apr = await ResolveAprAsync(acc.ProductCode, customApr, ct);
+
+        var principal = Math.Abs(entry.Amount);
 
         var plan = new InstallmentPlanEntity
         {
             Id = Guid.NewGuid(),
             AccountId = accountId,
-            TotalAmount = entry.Amount,
+            TotalAmount = principal,
             TotalInstallments = installments,
             RemainingInstallments = installments,
             InterestApr = apr,
@@ -51,16 +68,15 @@ public sealed class InstallmentService
             CreatedOn = DateTimeOffset.UtcNow
         };
 
-        // Create Amortization Schedule (Simplified Flat Interest or French system)
-        // For credit cards, it's often flat principal + interest on balance
-        decimal principalPerInstallment = Math.Round(entry.Amount / installments, 2);
-        decimal lastPrincipalAdjustment = entry.Amount - (principalPerInstallment * (installments - 1));
+        // Flat principal per installment, interest on the outstanding balance for one month.
+        // Installments fall due monthly from the purchase posting date so billing is deterministic.
+        decimal principalPerInstallment = Math.Round(principal / installments, 2);
+        decimal lastPrincipalAdjustment = principal - (principalPerInstallment * (installments - 1));
 
         for (int i = 1; i <= installments; i++)
         {
-            decimal principal = (i == installments) ? lastPrincipalAdjustment : principalPerInstallment;
-            // Simplified: Interest calculated for 30 days of the remaining balance
-            decimal remainingBalanceBefore = entry.Amount - (principalPerInstallment * (i - 1));
+            decimal installmentPrincipal = (i == installments) ? lastPrincipalAdjustment : principalPerInstallment;
+            decimal remainingBalanceBefore = principal - (principalPerInstallment * (i - 1));
             decimal interest = Math.Round(remainingBalanceBefore * (apr / 12m), 2);
 
             plan.AmortizationSchedule.Add(new AmortizationScheduleEntity
@@ -68,10 +84,10 @@ public sealed class InstallmentService
                 Id = Guid.NewGuid(),
                 PlanId = plan.Id,
                 InstallmentNumber = i,
-                PrincipalAmount = principal,
+                PrincipalAmount = installmentPrincipal,
                 InterestAmount = interest,
-                TotalInstallmentAmount = principal + interest,
-                DueDate = DateTime.UtcNow.AddMonths(i),
+                TotalInstallmentAmount = installmentPrincipal + interest,
+                DueDate = entry.PostedOn.AddMonths(i).UtcDateTime,
                 Status = InstallmentStatus.Pending,
                 CreatedOn = DateTimeOffset.UtcNow
             });
@@ -79,18 +95,15 @@ public sealed class InstallmentService
 
         _db.InstallmentPlans.Add(plan);
 
-        // Update original entry to reflect it's being deferred (optional, but good for UX)
-        // We could also "revert" the ledger entry amount to 0 and move it to a "Deferred" type
-        // but it's better to keep it and just mark it.
-        // For Zitron, we'll mark the original as "Deferred" so it doesn't count for the current balance
-        // but the plan principal will impact the "Total Balance".
-        // Actually, the simplest is to change the Type to help the Billing Engine skip it.
-        entry.Type = LedgerEntryType.Clearing; // Keep it as clearing but the billing engine will now look for installments
+        // Park the principal: still owed and still consuming credit line, no longer billable
+        // until each installment is released by the billing engine.
+        entry.Type = LedgerEntryType.DeferredPrincipal;
+        entry.Amount = principal;
 
         await _db.SaveChangesAsync(ct);
 
         await _audit.WriteAsync("billing.installment.created",
-            new { accountId, ledgerEntryId, installments, total = entry.Amount, apr },
+            new { accountId, ledgerEntryId, installments, total = principal, apr },
             correlationId: null,
             traceId: System.Diagnostics.Activity.Current?.TraceId.ToString(),
             ct: ct);
@@ -104,5 +117,22 @@ public sealed class InstallmentService
             .Include(x => x.AmortizationSchedule)
             .Where(x => x.AccountId == accountId && x.Status == InstallmentPlanStatus.Active)
             .ToListAsync(ct);
+    }
+
+    private async Task<decimal> ResolveAprAsync(string productCode, decimal? requestedApr, CancellationToken ct)
+    {
+        var product = await _db.CardProducts.AsNoTracking().FirstOrDefaultAsync(x => x.Code == productCode, ct)
+            ?? throw new InvalidOperationException($"Card product '{productCode}' not found; the installment APR cannot be resolved");
+
+        var apr = requestedApr ?? product.DefaultInstallmentApr
+            ?? throw new InvalidOperationException($"No installment APR was requested and product '{productCode}' has no default installment APR configured");
+
+        if (apr < 0m)
+            throw new InvalidOperationException("Installment APR cannot be negative");
+
+        if (product.MaxInstallmentApr is { } cap && apr > cap)
+            throw new InvalidOperationException($"Requested installment APR {apr:P2} exceeds the maximum {cap:P2} configured for product '{productCode}'");
+
+        return apr;
     }
 }

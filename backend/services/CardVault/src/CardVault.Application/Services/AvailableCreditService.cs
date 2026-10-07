@@ -21,12 +21,14 @@ public sealed class AvailableCreditService
         var acct = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, ct)
             ?? throw new InvalidOperationException("Account not found");
 
-        // Posted balance excludes AuthorizationHold entries (shadow). Clearing/Purchase/etc included.
+        // Posted balance excludes AuthorizationHold entries (shadow), both the positive hold placement
+        // and the negative release/expiry entry. Clearing/Purchase/etc included.
         var postedBalance = await _db.LedgerEntries.AsNoTracking()
             .Where(x => x.AccountId == accountId && x.Type != LedgerEntryType.AuthorizationHold)
             .SumAsync(x => x.Amount, ct);
 
-                var activeHolds = await _db.AuthorizationHolds.AsNoTracking()
+        // Pending amounts come from the holds table, never from the ledger.
+        var activeHolds = await _db.AuthorizationHolds.AsNoTracking()
             .Where(x => x.AccountId == accountId && (x.Status == HoldStatus.Active || x.Status == HoldStatus.PartiallyCaptured))
             .SumAsync(x => (x.Amount - x.CapturedAmount), ct);
 

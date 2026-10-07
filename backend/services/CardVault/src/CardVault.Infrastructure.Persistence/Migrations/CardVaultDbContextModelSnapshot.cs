@@ -1020,8 +1020,14 @@ namespace CardVault.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<decimal?>("DefaultInstallmentApr")
+                        .HasColumnType("numeric");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxInstallmentApr")
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Name")
                         .IsRequired()

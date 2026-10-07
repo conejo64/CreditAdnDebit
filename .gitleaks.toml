@@ -38,6 +38,18 @@ paths = [
 
 # Placeholder token used by .env.example-style files. Safe to allowlist by
 # regex because it never appears as a real secret value.
+regexTarget = "line"
 regexes = [
   '''__REPLACE_ME__''',
+  # CI-only connection strings for the ephemeral postgres:16-alpine service
+  # container in .github/workflows/ci.yml. The password is the container's own
+  # throwaway POSTGRES_PASSWORD, scoped to the job. Anchored to the exact env
+  # var names and host so real appsettings passwords stay detectable.
+  '''(CARDVAULT|ISOSWITCH)_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres"''',
+  # Documentation examples (integration test README, migration runbooks) showing
+  # how to point the fixture at a local throwaway server. Same throwaway value.
+  '''\$env:(CARDVAULT|ISOSWITCH)_TEST_POSTGRES = "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres"''',
+  # Dummy connection string used only to construct Npgsql SQL-generation services
+  # for migration script tests; no server is ever contacted.
+  '''UseNpgsql\("Host=localhost;Database=cardvault_migration_test;Username=test;Password=test"\)''',
 ]

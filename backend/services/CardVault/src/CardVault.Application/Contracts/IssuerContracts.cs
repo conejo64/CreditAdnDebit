@@ -4,7 +4,8 @@ namespace CardVault.Application.Contracts;
 
 public sealed record CreateCustomerRequest(string FullName, string DocumentId, string Email, string Phone, string DocumentType, string Gender, string BillingAddress, string StatementAddress, string ResidenceCity, string StatementCity, string CardDeliveryCity);
 public sealed record CreateAccountRequest(Guid CustomerId, AccountType AccountType, string ProductCode, decimal CreditLimit);
-public sealed record IssueCardRequest(Guid AccountId, string Bin, string Pan, string ExpiryYyMm);
+/// <summary>The PAN is generated server-side from <see cref="Bin"/>; it never crosses the API boundary.</summary>
+public sealed record IssueCardRequest(Guid AccountId, string Bin, string ExpiryYyMm);
 public sealed record BlockCardRequest(string Reason);
 public sealed record CancelCardRequest(string? Reason);
 public sealed record ReplaceCardRequest(string? Reason);

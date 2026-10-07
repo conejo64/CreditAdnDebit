@@ -92,7 +92,7 @@ describe('CardService — lifecycle endpoints (RED → GREEN)', () => {
    * The coercion belongs here, at the network boundary, so no caller can reintroduce it.
    */
   it('issueCard() should send bin as a JSON string', () => {
-    service.issueCard('acc-1', '438108', '4381081234567890', '2912').subscribe();
+    service.issueCard('acc-1', '438108', '2912').subscribe();
 
     const req = httpMock.expectOne(`${base}/issue`);
     expect(req.request.method).toBe('POST');
@@ -100,15 +100,24 @@ describe('CardService — lifecycle endpoints (RED → GREEN)', () => {
     expect(req.request.body).toEqual({
       accountId: 'acc-1',
       bin: '438108',
-      pan: '4381081234567890',
       expiryYyMm: '2912'
     });
     req.flush({});
   });
 
+  // Gate 0 / T9: the PAN is generated and vaulted server-side; the browser must never send one.
+  it('issueCard() should not send a pan — CardVault generates it from the BIN', () => {
+    service.issueCard('acc-1', '438108', '2912').subscribe();
+
+    const req = httpMock.expectOne(`${base}/issue`);
+    expect(Object.keys(req.request.body)).toEqual(['accountId', 'bin', 'expiryYyMm']);
+    expect(JSON.stringify(req.request.body)).not.toMatch(/\d{16}/);
+    req.flush({});
+  });
+
   // RED before the fix: a numeric bin was serialised as a JSON number and rejected.
   it('issueCard() should stringify a numeric bin before sending it', () => {
-    service.issueCard('acc-2', 438108 as unknown as string, '4381081234567890', '2912').subscribe();
+    service.issueCard('acc-2', 438108 as unknown as string, '2912').subscribe();
 
     const req = httpMock.expectOne(`${base}/issue`);
     expect(typeof req.request.body.bin)

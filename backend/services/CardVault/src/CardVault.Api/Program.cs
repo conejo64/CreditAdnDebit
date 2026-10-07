@@ -27,6 +27,7 @@ using CardVault.Api.Pci;
 using CardVault.Infrastructure.Messaging.Publishers;
 using CardVault.Api.Vault;
 using CardVault.Infrastructure.Persistence.Billing;
+using CardVault.Infrastructure.Persistence.Migrations;
 using CardVault.Infrastructure.Persistence.Switch;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Resources;
@@ -389,6 +390,17 @@ using (var scope = app.Services.CreateScope())
             }
             else
             {
+                // Gate 0 / T7: the chain is a single InitialBaseline. A database provisioned earlier
+                // with EnsureCreated() has the schema but no __EFMigrationsHistory; adopt the baseline
+                // instead of re-creating every table (42P07). No-op on empty or already-migrated DBs.
+                // See docs/runbooks/cardvault-migration-baseline.md.
+                if (await MigrationBaselineAdoption.TryAdoptBaselineAsync(cardDb, logger))
+                {
+                    logger.LogWarning(
+                        "CardVault database had the application schema but no migration history; " +
+                        "recorded {MigrationId} as applied without running it (baseline adoption).",
+                        MigrationBaselineAdoption.BaselineMigrationId);
+                }
                 cardDb.Database.Migrate();
                 idDb.Database.Migrate();
             }
@@ -485,7 +497,17 @@ using (var scope = app.Services.CreateScope())
         // Card products
         if (!await cardDb.CardProducts.AnyAsync())
         {
-            cardDb.CardProducts.AddRange(new CardProductEntity { Code = "VISA_CREDIT_CLASSIC", Brand = "VISA", ProductType = "CREDIT", Name = "Visa Classic", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow }, new CardProductEntity { Code = "VISA_DEBIT", Brand = "VISA", ProductType = "DEBIT", Name = "Visa Debit", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow });
+            cardDb.CardProducts.AddRange(
+                new CardProductEntity
+                {
+                    Code = "VISA_CREDIT_CLASSIC", Brand = "VISA", ProductType = "CREDIT", Name = "Visa Classic", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow,
+                    // Development seed values only, not regulatory rates. InstallmentService fails closed
+                    // without a default APR, so a credit product needs one to defer purchases locally.
+                    DefaultInstallmentApr = 0.16m,
+                    MaxInstallmentApr = 0.18m
+                },
+                // Debit products never defer purchases: both APR fields stay null.
+                new CardProductEntity { Code = "VISA_DEBIT", Brand = "VISA", ProductType = "DEBIT", Name = "Visa Debit", Enabled = true, UpdatedOn = DateTimeOffset.UtcNow });
         }
 
         // BIN ranges

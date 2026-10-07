@@ -37,7 +37,9 @@ public sealed class RiskDecisionServiceTests : IDisposable
     // ─────────────────────────────────────────────────────────
 
     private async Task<(CardAccountEntity Account, CardEntity Card)> CreateCreditAccountWithCardAsync(
-        decimal creditLimit = 5000m, string productCode = "VISA_TEST")
+        decimal creditLimit = 5000m, string productCode = "VISA_TEST",
+        CardStatus cardStatus = CardStatus.Active, string expiryYyMm = "2812",
+        AccountStatus accountStatus = AccountStatus.Active)
     {
         var customer = _db.Customers.Add(new CustomerEntity
         {
@@ -58,7 +60,7 @@ public sealed class RiskDecisionServiceTests : IDisposable
             CreditLimit = creditLimit,
             AvailableLimit = creditLimit,
             AccountNumber = $"ACC{Guid.NewGuid():N}"[..10],
-            Status = AccountStatus.Active,
+            Status = accountStatus,
         }).Entity;
 
         var card = _db.Cards.Add(new CardEntity
@@ -69,8 +71,8 @@ public sealed class RiskDecisionServiceTests : IDisposable
             PanToken = $"tok_{Guid.NewGuid():N}",
             MaskedPan = "411111******1111",
             Last4 = "1111",
-            ExpiryYyMm = "2812",
-            Status = CardStatus.Active,
+            ExpiryYyMm = expiryYyMm,
+            Status = cardStatus,
         }).Entity;
 
         await _db.SaveChangesAsync();
@@ -93,6 +95,146 @@ public sealed class RiskDecisionServiceTests : IDisposable
             HoldTtlHours = holdTtlHours,
         });
         await _db.SaveChangesAsync();
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 0. Card and account state (Gate 0 / T5)
+    // ─────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(CardStatus.Created, "CARD_NOT_ACTIVE")]
+    [InlineData(CardStatus.Personalized, "CARD_NOT_ACTIVE")]
+    [InlineData(CardStatus.Printed, "CARD_NOT_ACTIVE")]
+    [InlineData(CardStatus.Delivered, "CARD_NOT_ACTIVE")]
+    [InlineData(CardStatus.Blocked, "CARD_BLOCKED")]
+    [InlineData(CardStatus.Cancelled, "CARD_CANCELLED")]
+    [InlineData(CardStatus.Expired, "CARD_EXPIRED")]
+    public async Task DecideAuth_CardNotActive_ShouldDeclineWithStatusReason(CardStatus status, string expectedReason)
+    {
+        var (account, card) = await CreateCreditAccountWithCardAsync(cardStatus: status);
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, card.Id, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse($"a {status} card must never be authorized");
+        result.Reason.Should().Be(expectedReason);
+    }
+
+    [Theory]
+    [InlineData("2001")]   // January 2020, YYMM
+    [InlineData("202001")] // January 2020, YYYYMM
+    public async Task DecideAuth_ActiveCardPastExpiry_ShouldDeclineWithCardExpired(string expiry)
+    {
+        var (account, card) = await CreateCreditAccountWithCardAsync(expiryYyMm: expiry);
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, card.Id, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse("the expiry date on the card has passed even though its status is still Active");
+        result.Reason.Should().Be("CARD_EXPIRED");
+    }
+
+    [Theory]
+    [InlineData("9912")]
+    [InlineData("209912")]
+    public async Task DecideAuth_ActiveCardWithFutureExpiry_ShouldApprove(string expiry)
+    {
+        var (account, card) = await CreateCreditAccountWithCardAsync(expiryYyMm: expiry);
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, card.Id, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeTrue();
+        result.Reason.Should().Be("OK");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("ABCD")]
+    [InlineData("2813")] // month 13
+    [InlineData("28")]
+    public async Task DecideAuth_UnparsableExpiry_ShouldFailClosed(string expiry)
+    {
+        var (account, card) = await CreateCreditAccountWithCardAsync(expiryYyMm: expiry);
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, card.Id, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse("a card whose expiry cannot be read must not be trusted");
+        result.Reason.Should().Be("CARD_EXPIRY_INVALID");
+    }
+
+    [Fact]
+    public async Task DecideAuth_UnknownCard_ShouldDeclineWithCardNotFound()
+    {
+        var (account, _) = await CreateCreditAccountWithCardAsync();
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, Guid.NewGuid(), 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse();
+        result.Reason.Should().Be("CARD_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task DecideAuth_CardOfAnotherAccount_ShouldDeclineWithMismatch()
+    {
+        var (account, _) = await CreateCreditAccountWithCardAsync();
+        var (_, otherCard) = await CreateCreditAccountWithCardAsync();
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, otherCard.Id, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse("a card may only draw on its own account");
+        result.Reason.Should().Be("CARD_ACCOUNT_MISMATCH");
+    }
+
+    [Fact]
+    public async Task DecideAuth_BlockedCardWithWrongPin_ShouldDeclineForStateBeforePin()
+    {
+        var (account, card) = await CreateCreditAccountWithCardAsync();
+        await SetPinAsync(card.Id, "1234");
+        card.Status = CardStatus.Blocked;
+        await _db.SaveChangesAsync();
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, card.Id, 100m, null, null, "9999", CancellationToken.None);
+
+        result.Reason.Should().Be("CARD_BLOCKED", "card state is checked before the PIN so a blocked card never burns PIN retries");
+        var persisted = _db.Cards.Single(x => x.Id == card.Id);
+        persisted.PinRetryCount.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(AccountStatus.Blocked, "ACCOUNT_BLOCKED")]
+    [InlineData(AccountStatus.Closed, "ACCOUNT_CLOSED")]
+    [InlineData(AccountStatus.Delinquent, "ACCOUNT_DELINQUENT")]
+    public async Task DecideAuth_AccountNotActive_ShouldDeclineEvenWithoutCard(AccountStatus status, string expectedReason)
+    {
+        var (account, _) = await CreateCreditAccountWithCardAsync(accountStatus: status);
+
+        var result = await _sut.DecideAuthAsync(
+            account.Id, null, 100m, null, null, null, CancellationToken.None);
+
+        result.Approved.Should().BeFalse($"a {status} account must never be authorized");
+        result.Reason.Should().Be(expectedReason);
+    }
+
+    [Theory]
+    [InlineData("CARD_EXPIRED", "54")]
+    [InlineData("CARD_EXPIRY_INVALID", "14")]
+    [InlineData("CARD_NOT_FOUND", "14")]
+    [InlineData("CARD_ACCOUNT_MISMATCH", "14")]
+    [InlineData("CARD_CANCELLED", "14")]
+    [InlineData("CARD_BLOCKED", "62")]
+    [InlineData("CARD_NOT_ACTIVE", "62")]
+    [InlineData("ACCOUNT_BLOCKED", "62")]
+    [InlineData("ACCOUNT_CLOSED", "62")]
+    [InlineData("ACCOUNT_DELINQUENT", "05")]
+    [InlineData("INSUFFICIENT_AVAILABLE_CREDIT", "51")]
+    public void MapResponseCode_StateDeclines_ShouldUseIso8583Codes(string reason, string expectedCode)
+    {
+        HoldResponseCodeCalculator.MapResponseCode(reason).Should().Be(expectedCode);
     }
 
     // ─────────────────────────────────────────────────────────

@@ -75,7 +75,7 @@ public sealed class TcpIso8583Server : BackgroundService
                     TpduHex: tpdu is null ? null : Convert.ToHexString(tpdu)
                 ));
 
-                await audit.LogBinaryAsync($"{req.Stan}|{req.Rrn}", "IN", req.Mti, req.Stan, req.Rrn, Convert.ToHexString(framedPayload), tpdu is null ? null : Convert.ToHexString(tpdu), new { tokenPan = (string?)null, amount = req.Amount, mcc = req.Mcc18, terminalId = req.TerminalId41, acceptorId = req.AcceptorId42, currency = req.Currency49 }, ct);
+                await audit.LogFrameAsync($"{req.Stan}|{req.Rrn}", "IN", req.Mti, req.Stan, req.Rrn, framedPayload, tpdu, new { tokenPan = (string?)null, amount = req.Amount, mcc = req.Mcc18, terminalId = req.TerminalId41, acceptorId = req.AcceptorId42, currency = req.Currency49 }, ct);
 
 
                 if (string.IsNullOrWhiteSpace(req.Pan) || !PanUtils.IsValidLuhn(req.Pan))
@@ -181,7 +181,7 @@ public sealed class TcpIso8583Server : BackgroundService
                     var frame = Iso8583Binary.BuildFrame(outBytes);
 
                     IsoTraceStore.Add(new IsoTraceStore.IsoTrace($"{req.Stan}|{req.Rrn}", DateTimeOffset.UtcNow, "OUT", resp.Mti, req.Stan, req.Rrn, Convert.ToHexString(outBytes), tpdu is null ? null : Convert.ToHexString(tpdu)));
-                    await audit.LogBinaryAsync($"{req.Stan}|{req.Rrn}", "OUT", resp.Mti, req.Stan, req.Rrn, Convert.ToHexString(outBytes), tpdu is null ? null : Convert.ToHexString(tpdu), new { responseCode = "00", tokenPan, panMasked, network, currency }, ct);
+                    await audit.LogFrameAsync($"{req.Stan}|{req.Rrn}", "OUT", resp.Mti, req.Stan, req.Rrn, outBytes, tpdu, new { responseCode = "00", tokenPan, panMasked, network, currency }, ct);
                     await stream.WriteAsync(frame, ct);
                     continue;
                 }
@@ -244,7 +244,7 @@ public sealed class TcpIso8583Server : BackgroundService
                 var frameOut = Iso8583Binary.BuildFrame(outAll);
 
                 IsoTraceStore.Add(new IsoTraceStore.IsoTrace($"{req.Stan}|{req.Rrn}", DateTimeOffset.UtcNow, "OUT", respMsg.Mti, req.Stan, req.Rrn, Convert.ToHexString(outAll), tpdu is null ? null : Convert.ToHexString(tpdu)));
-                await audit.LogBinaryAsync($"{req.Stan}|{req.Rrn}", "OUT", respMsg.Mti, req.Stan, req.Rrn, Convert.ToHexString(outAll), tpdu is null ? null : Convert.ToHexString(tpdu), new { responseCode = decision.ResponseCode, tokenPan, panMasked, network, currency }, ct);
+                await audit.LogFrameAsync($"{req.Stan}|{req.Rrn}", "OUT", respMsg.Mti, req.Stan, req.Rrn, outAll, tpdu, new { responseCode = decision.ResponseCode, tokenPan, panMasked, network, currency }, ct);
                 await stream.WriteAsync(frameOut, ct);
             }
             catch (Exception ex)

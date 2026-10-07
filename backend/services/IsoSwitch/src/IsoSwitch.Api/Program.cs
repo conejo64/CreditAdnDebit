@@ -10,6 +10,7 @@ using IsoSwitch.Api.Iso8583;
 using IsoSwitch.Api.Routing;
 using IsoSwitch.Api.Security;
 using Confluent.Kafka;
+using IsoSwitch.Infrastructure.Persistence.Migrations;
 using IsoSwitch.Infrastructure.Persistence.Routing;
 using IsoSwitch.Infrastructure.Persistence.Catalog;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
@@ -123,11 +124,10 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<IsoSwitch.Application.ApplicationMarker>());
 // Postgres (switch db)
+// PendingModelChangesWarning is no longer silenced here: the snapshot is generated with the
+// baseline and IsoSwitch.IntegrationTests/CleanDatabaseMigrateTest asserts it matches the model.
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
-{
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"), b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence"));
-    opt.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
-});
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"), b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence")));
 builder.Services.AddSingleton<ISwitchEventPublisher, SwitchEventPublisher>();
 builder.Services.AddScoped<IIsoAuditService, IsoAuditService>();
 builder.Services.AddScoped<BinaryIsoAuditService>();
@@ -224,9 +224,24 @@ using (var scope = app.Services.CreateScope())
         {
             logger.LogInformation("Attempting to apply migrations for IsoSwitch (Attempt {RetryCount}/5)...", retryCount + 1);
             if (app.Environment.IsDevelopment() || isInMemory)
+            {
                 await db.Database.EnsureCreatedAsync();
+            }
             else
+            {
+                // Gate 0 / T8: the chain is a single InitialBaseline. A database provisioned earlier
+                // with EnsureCreated() has the schema but no __EFMigrationsHistory; adopt the baseline
+                // instead of re-creating every table (42P07). No-op on empty or already-migrated DBs.
+                // See docs/runbooks/isoswitch-migration-baseline.md.
+                if (await MigrationBaselineAdoption.TryAdoptBaselineAsync(db, logger))
+                {
+                    logger.LogWarning(
+                        "IsoSwitch database had the application schema but no migration history; " +
+                        "recorded {MigrationId} as applied without running it (baseline adoption).",
+                        MigrationBaselineAdoption.BaselineMigrationId);
+                }
                 await db.Database.MigrateAsync();
+            }
             logger.LogInformation("IsoSwitch migrations applied successfully.");
             break;
         }
