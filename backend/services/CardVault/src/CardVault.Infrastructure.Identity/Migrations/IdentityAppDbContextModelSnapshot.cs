@@ -134,6 +134,9 @@ namespace CardVault.Infrastructure.Identity.Migrations
                     b.Property<DateTimeOffset>("ExpiresOn")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("FamilyId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("ReplacedByTokenHash")
                         .HasColumnType("nvarchar(max)");
 
@@ -149,6 +152,8 @@ namespace CardVault.Infrastructure.Identity.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FamilyId");
 
                     b.HasIndex("UserId", "TokenHash")
                         .IsUnique();
