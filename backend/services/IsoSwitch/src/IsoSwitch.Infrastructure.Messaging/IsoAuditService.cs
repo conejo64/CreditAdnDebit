@@ -1,9 +1,15 @@
+using IsoSwitch.Domain;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.IsoAudit;
 using System.Text.Json;
 
 namespace IsoSwitch.Infrastructure.Messaging;
 
+/// <summary>
+/// Persists one <see cref="IsoMessageLogEntity"/> per message direction. Card data is masked through
+/// <see cref="CardDataMasking"/> before anything is written; the log is read back by operators via
+/// <c>/api/iso/logs/{traceId}</c>, so whatever lands here is effectively displayed.
+/// </summary>
 public sealed class IsoAuditService : IIsoAuditService
 {
     private readonly IsoSwitchDbContext _db;
@@ -15,19 +21,12 @@ public sealed class IsoAuditService : IIsoAuditService
 
     public async Task LogAsync(string traceId, string direction, IsoMessage msg, CancellationToken ct)
     {
-        var dict = new Dictionary<int, string?>(msg.Fields);
-
-        // Mask sensitive fields: 2(PAN), 52(PIN), 55(EMV), 64/128(MAC)
-        if (dict.ContainsKey(2)) dict[2] = "***";
-        if (dict.ContainsKey(52)) dict[52] = "***";
-        if (dict.ContainsKey(55)) dict[55] = "***";
-        if (dict.ContainsKey(64)) dict[64] = "***";
-        if (dict.ContainsKey(128)) dict[128] = "***";
+        var masked = CardDataMasking.MaskFields(msg.Fields);
 
         var json = JsonSerializer.Serialize(new
         {
             mti = msg.Mti,
-            fields = dict.OrderBy(k => k.Key).ToDictionary(k => k.Key.ToString(), v => v.Value)
+            fields = masked.OrderBy(k => k.Key).ToDictionary(k => k.Key.ToString(), v => v.Value)
         });
 
         _db.IsoMessageLogs.Add(new IsoMessageLogEntity

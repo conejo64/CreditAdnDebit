@@ -1,4 +1,5 @@
 using IsoSwitch.Application.Config;
+using IsoSwitch.Domain;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
@@ -90,7 +91,8 @@ public class CaptureTransactionCommandHandler : IRequestHandler<CaptureTransacti
         iso.Set(64, _hsmSvc.ComputeMacHex("CAPTURE"));
         iso.Set(128, _hsmSvc.ComputeMacHex("CAPTURE128"));
 
-        var requestJson = JsonSerializer.Serialize(iso.Fields);
+        // Persisted copy only: the outbound message keeps the real fields, the row never does.
+        var requestJson = JsonSerializer.Serialize(CardDataMasking.MaskFields(iso.Fields));
 
         // 4. Persistence - Initial State
         var tx = new TransactionEntity
@@ -149,20 +151,21 @@ public class CaptureTransactionCommandHandler : IRequestHandler<CaptureTransacti
         tx.Status = nextStatus;
         tx.Decision = rc == "00" ? "APPROVED" : "DECLINED";
         tx.ResponseCode = rc;
+        tx.ResponseJson = JsonSerializer.Serialize(CardDataMasking.MaskFields(resp.Fields));
         tx.UpdatedOn = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);
 
-        await _publisher.PublishTxAsync(request.TraceId, new 
-        { 
-            type = "sw.tx.updated", 
-            traceId = request.TraceId, 
-            status = tx.Status, 
-            decision = tx.Decision, 
-            responseCode = rc, 
-            connectorId, 
-            updatedOn = DateTimeOffset.UtcNow, 
-            idempotencyKey = request.IdempotencyKey 
+        await _publisher.PublishTxAsync(request.TraceId, new
+        {
+            type = "sw.tx.updated",
+            traceId = request.TraceId,
+            status = tx.Status,
+            decision = tx.Decision,
+            responseCode = rc,
+            connectorId,
+            updatedOn = DateTimeOffset.UtcNow,
+            idempotencyKey = request.IdempotencyKey
         }, ct);
 
         return new CaptureTransactionResult(

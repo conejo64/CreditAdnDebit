@@ -82,6 +82,45 @@ public class CaptureTransactionCommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_PersistsMaskedCardData_WhileTheConnectorStillReceivesClearFields()
+    {
+        // Arrange
+        const string pan = "4539578763621486";
+        const string track2 = "4539578763621486=29121011234567890";
+        const string pinBlock = "A1B2C3D4E5F60718";
+        var traceId = Guid.NewGuid().ToString("N");
+        var command = new CaptureTransactionCommand(traceId, 453957, 100m, "840", "M01", "T01", "000003",
+            PinBlock: pinBlock, Pan: pan, Track2: track2);
+
+        _router.ResolveAsync(453957, null, null, "AUTH", Arg.Any<CancellationToken>())
+            .Returns(new RoutingDecision("SIMULATOR", "STATIC", Guid.NewGuid(), null, null));
+
+        IsoMessage? sent = null;
+        var responseIso = new IsoMessage { Mti = "0210" };
+        responseIso.Set(2, pan);
+        responseIso.Set(39, "00");
+        _connector.AuthorizeAsync(Arg.Do<IsoMessage>(m => sent = m), Arg.Any<CancellationToken>())
+            .Returns(responseIso);
+
+        // Act
+        await _sut.Handle(command, CancellationToken.None);
+
+        // Assert: outbound message is untouched
+        sent.Should().NotBeNull();
+        sent!.Fields[2].Should().Be(pan);
+        sent.Fields[35].Should().Be(track2);
+        sent.Fields[52].Should().Be(pinBlock);
+
+        // Assert: persisted copies are masked
+        var savedTx = await _db.Transactions.AsNoTracking().FirstAsync(t => t.TraceId == traceId);
+        savedTx.RequestJson.Should().NotContain(pan).And.NotContain(track2).And.NotContain(pinBlock).And.NotContain("=2912");
+        savedTx.RequestJson.Should().Contain("453957******1486");
+        savedTx.ResponseJson.Should().NotBeNull();
+        savedTx.ResponseJson.Should().NotContain(pan);
+        savedTx.ResponseJson.Should().Contain("\"39\":\"00\"");
+    }
+
+    [Fact]
     public async Task Handle_DeclinedCapture_ShouldSaveAsDeclined()
     {
         // Arrange

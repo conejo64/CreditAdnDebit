@@ -1,4 +1,5 @@
 using IsoSwitch.Application.Config;
+using IsoSwitch.Domain;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
@@ -113,7 +114,8 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
             Currency = iso.Fields.TryGetValue(49, out var c49) ? c49 : null,
             TerminalId = iso.Fields.TryGetValue(41, out var t41) ? t41 : null,
             MerchantId = iso.Fields.TryGetValue(42, out var m42) ? m42 : null,
-            RequestJson = JsonSerializer.Serialize(new { mti = iso.Mti, fields = iso.Fields })
+            // Persisted copy only: the outbound message keeps the real fields, the row never does.
+            RequestJson = JsonSerializer.Serialize(new { mti = iso.Mti, fields = CardDataMasking.MaskFields(iso.Fields) })
         };
 
         _db.Transactions.Add(tx);
@@ -147,6 +149,7 @@ public class AuthorizeTransactionCommandHandler : IRequestHandler<AuthorizeTrans
         tx.Status = nextStatus;
         tx.Decision = rc == "00" ? "APPROVED" : "DECLINED";
         tx.ResponseCode = rc;
+        tx.ResponseJson = JsonSerializer.Serialize(new { mti = resp.Mti, fields = CardDataMasking.MaskFields(resp.Fields) });
         tx.UpdatedOn = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);

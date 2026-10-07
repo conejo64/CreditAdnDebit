@@ -1,4 +1,5 @@
 using IsoSwitch.Application.Config;
+using IsoSwitch.Domain;
 using IsoSwitch.Infrastructure.Persistence;
 using IsoSwitch.Infrastructure.Persistence.Transactions;
 using IsoSwitch.Infrastructure.SwitchIso8583.Iso;
@@ -97,7 +98,8 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
             CorrelationId = request.OriginalTraceId,
             IdempotencyKey = request.IdempotencyKey,
             RequestMti = iso.Mti,
-            RequestJson = JsonSerializer.Serialize(iso.Fields),
+            // Persisted copy only: MACs (DE64/DE128) are redacted, the outbound message keeps them.
+            RequestJson = JsonSerializer.Serialize(CardDataMasking.MaskFields(iso.Fields)),
             Stan = stan,
             TxType = TransactionTypes.ReversalAdvice,
             OriginalTraceId = request.OriginalTraceId,
@@ -147,6 +149,7 @@ public class ReversalAdviceCommandHandler : IRequestHandler<ReversalAdviceComman
         tx.Status = nextStatus;
         tx.Decision = rc == "00" ? "APPROVED" : "DECLINED";
         tx.ResponseCode = rc;
+        tx.ResponseJson = JsonSerializer.Serialize(CardDataMasking.MaskFields(resp.Fields));
         tx.UpdatedOn = DateTimeOffset.UtcNow;
 
         originalTx.ReversalState = rc == "00" ? "REVERSAL_CONFIRMED" : "REVERSAL_FAILED";

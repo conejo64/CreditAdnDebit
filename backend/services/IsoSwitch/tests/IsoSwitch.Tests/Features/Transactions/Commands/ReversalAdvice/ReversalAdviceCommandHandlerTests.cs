@@ -196,4 +196,56 @@ public class ReversalAdviceCommandHandlerTests : IDisposable
         dbTx.Status.Should().Be(TransactionStatuses.InDoubt);
         dbTx.InDoubt.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Handle_PersistsRedactedMacs_WhileTheConnectorStillReceivesThem()
+    {
+        // Arrange: the advice carries no PAN, but it does carry the MACs (DE64/DE128) and the
+        // acquirer may echo card data back in the response; neither may be persisted in clear.
+        const string pan = "4539578763621486";
+        const string mac64 = "0011223344556677";
+        const string mac128 = "8899AABBCCDDEEFF";
+        var originalTraceId = "trace-original-mask";
+        _db.Transactions.Add(new TransactionEntity
+        {
+            Id = Guid.NewGuid(),
+            TraceId = originalTraceId,
+            TxType = TransactionTypes.Auth,
+            Status = TransactionStatuses.Confirmed,
+            ConnectorId = "SIMULATOR",
+            Stan = "111222",
+            CreatedOn = DateTimeOffset.UtcNow,
+            RequestMti = "0100",
+            RequestJson = "{}",
+            Amount12 = "000000010050",
+            Currency = "840"
+        });
+        await _db.SaveChangesAsync();
+
+        _macSvc.ComputeMacHex("REVADV").Returns(mac64);
+        _macSvc.ComputeMacHex("REVADV128").Returns(mac128);
+
+        IsoMessage? sent = null;
+        var responseIso = new IsoMessage { Mti = "0430" };
+        responseIso.Set(2, pan);
+        responseIso.Set(39, "00");
+        _connector.AuthorizeAsync(Arg.Do<IsoMessage>(m => sent = m), Arg.Any<CancellationToken>())
+            .Returns(responseIso);
+
+        // Act
+        await _sut.Handle(new ReversalAdviceCommand("advice-trace-mask", originalTraceId), CancellationToken.None);
+
+        // Assert: outbound keeps the MACs
+        sent.Should().NotBeNull();
+        sent!.Fields[64].Should().Be(mac64);
+        sent.Fields[128].Should().Be(mac128);
+
+        // Assert: persisted copies redact them and never hold the echoed PAN
+        var dbTx = await _db.Transactions.AsNoTracking().FirstAsync(t => t.TraceId == "advice-trace-mask");
+        dbTx.RequestJson.Should().NotContain(mac64).And.NotContain(mac128);
+        dbTx.RequestJson.Should().Contain("000000010050");
+        dbTx.ResponseJson.Should().NotBeNull();
+        dbTx.ResponseJson.Should().NotContain(pan);
+        dbTx.ResponseJson.Should().Contain("453957******1486");
+    }
 }
