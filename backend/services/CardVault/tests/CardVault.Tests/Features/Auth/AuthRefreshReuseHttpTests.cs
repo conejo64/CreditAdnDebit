@@ -101,6 +101,50 @@ public sealed class AuthRefreshReuseHttpTests : IDisposable
 
     // ── tests ────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Tokens issued before the family identifier existed share the default family. Reuse of
+    /// such a token must only revoke the presenting user's tokens, never another user's.
+    /// </summary>
+    [Fact]
+    public async Task ReuseOfALegacyTokenWithoutAFamily_RevokesOnlyThePresentingUsersTokens()
+    {
+        var (userA, _) = await LoginAsync("legacy-a@example.com", "LegacyPassword-A-123");
+        var (userB, _) = await LoginAsync("legacy-b@example.com", "LegacyPassword-B-123");
+
+        // Seed legacy rows exactly as the pre-G1-T4 code wrote them: no family identifier.
+        var rotatedA = Guid.NewGuid().ToString("N");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var idDb = scope.ServiceProvider.GetRequiredService<IdentityAppDbContext>();
+            idDb.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = userA, TokenHash = TokenService.HashRefreshToken(rotatedA), FamilyId = Guid.Empty,
+                ExpiresOn = DateTimeOffset.UtcNow.AddDays(7), RevokedOn = DateTimeOffset.UtcNow.AddMinutes(-1)
+            });
+            idDb.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = userA, TokenHash = TokenService.HashRefreshToken(Guid.NewGuid().ToString("N")), FamilyId = Guid.Empty,
+                ExpiresOn = DateTimeOffset.UtcNow.AddDays(7)
+            });
+            idDb.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = userB, TokenHash = TokenService.HashRefreshToken(Guid.NewGuid().ToString("N")), FamilyId = Guid.Empty,
+                ExpiresOn = DateTimeOffset.UtcNow.AddDays(7)
+            });
+            await idDb.SaveChangesAsync();
+        }
+
+        var response = await RefreshAsync(rotatedA);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var tokensA = await TokensOfAsync(userA);
+        tokensA.Where(t => t.FamilyId == Guid.Empty).Should().OnlyContain(t => t.RevokedOn != null, "the presenting user's legacy tokens are revoked");
+
+        var tokensB = await TokensOfAsync(userB);
+        tokensB.Where(t => t.FamilyId == Guid.Empty).Should().OnlyContain(t => t.RevokedOn == null, "another user's legacy tokens must survive");
+        tokensB.Where(t => t.FamilyId != Guid.Empty).Should().OnlyContain(t => t.RevokedOn == null, "another user's live session must survive");
+    }
+
     [Fact]
     public async Task LegitimateRotation_KeepsWorking_AndKeepsTheTokenInTheSameFamily()
     {

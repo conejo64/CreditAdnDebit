@@ -356,8 +356,13 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, I
     private async Task RevokeFamilyForReuseAsync(RefreshToken presented, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
+        // A family never spans users, so the user is always part of the predicate. Tokens issued
+        // before the family identifier existed share Guid.Empty; that is "no family", and reuse of
+        // one of them revokes only the presenting user's legacy tokens, never another user's.
         var live = await _idDb.RefreshTokens
-            .Where(x => x.FamilyId == presented.FamilyId && x.RevokedOn == null)
+            .Where(x => x.UserId == presented.UserId
+                        && x.FamilyId == presented.FamilyId
+                        && x.RevokedOn == null)
             .ToListAsync(cancellationToken);
         foreach (var token in live)
             token.RevokedOn = now;
