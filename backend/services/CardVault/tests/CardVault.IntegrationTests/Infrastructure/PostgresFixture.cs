@@ -2,6 +2,8 @@ using CardVault.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Testcontainers.PostgreSql;
+using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace CardVault.IntegrationTests.Infrastructure;
 
@@ -32,9 +34,16 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly List<string> _createdDatabases = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly IMessageSink _diagnostics;
 
     private PostgreSqlContainer? _container;
     private string? _adminConnectionString;
+
+    /// <param name="diagnostics">xunit diagnostic sink; cleanup failures are reported here (and on stderr).</param>
+    public PostgresFixture(IMessageSink diagnostics)
+    {
+        _diagnostics = diagnostics;
+    }
 
     /// <summary>Human-readable description of where the server came from, for diagnostics.</summary>
     public string Source { get; private set; } = "unresolved";
@@ -72,9 +81,13 @@ public sealed class PostgresFixture : IAsyncLifetime
                     command.CommandText = $"DROP DATABASE IF EXISTS \"{database}\" WITH (FORCE)";
                     await command.ExecuteNonQueryAsync();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Best-effort cleanup; a leaked test database never fails the run.
+                    // Best-effort cleanup: a leaked test database never fails the run, but it must
+                    // never be silent either, or a misconfigured admin connection goes unnoticed.
+                    var message = $"PostgresFixture: could not drop test database \"{database}\" on {Source}: {ex.GetType().Name}: {ex.Message}";
+                    _diagnostics.OnMessage(new DiagnosticMessage(message));
+                    Console.Error.WriteLine(message);
                 }
             }
         }

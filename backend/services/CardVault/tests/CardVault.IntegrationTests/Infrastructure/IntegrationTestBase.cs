@@ -52,7 +52,12 @@ public abstract class IntegrationTestBase : IAsyncLifetime
 
     public virtual async Task DisposeAsync()
     {
-        await Db.DisposeAsync();
+        // Db stays null when InitializeAsync failed (no server, container start error, ...).
+        // Guarding here lets the real infrastructure error surface instead of a NullReferenceException.
+        if (Db is not null)
+        {
+            await Db.DisposeAsync();
+        }
     }
 
     /// <summary>

@@ -14,13 +14,6 @@ namespace CardVault.IntegrationTests.Billing;
 /// </summary>
 public sealed class StatementCycleIntegrationTests : IntegrationTestBase
 {
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Jan =
-        (new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 1, 31, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 1, 31, 0, 0, 0, DateTimeKind.Utc));
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Feb =
-        (new DateTime(2025, 2, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 2, 28, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 2, 28, 0, 0, 0, DateTimeKind.Utc));
-    private static readonly (DateTime Start, DateTime End, DateTime StatementDate) Mar =
-        (new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 3, 31, 23, 59, 59, DateTimeKind.Utc), new DateTime(2025, 3, 31, 0, 0, 0, DateTimeKind.Utc));
-
     private BillingService _billing = null!;
 
     public StatementCycleIntegrationTests(PostgresFixture fixture) : base(fixture)
@@ -45,7 +38,7 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
         AddEntry(account.Id, LedgerEntryType.Clearing, 40m, On(2025, 1, 12));             // ... and its clearing
         await Db.SaveChangesAsync();
 
-        var st = await GenerateAsync(account.Id, Jan);
+        var st = await _billing.GenerateAsync(account.Id, BillingCycles.Jan);
 
         st.PreviousBalance.Should().Be(100m, "the pre-cycle open hold is not posted debt");
         st.Purchases.Should().Be(40m, "only the clearing is a purchase; the hold behind it is not added again");
@@ -68,12 +61,12 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
         AddEntry(account.Id, LedgerEntryType.Purchase, 200m, On(2025, 1, 15));
         await Db.SaveChangesAsync();
 
-        var jan = await GenerateAsync(account.Id, Jan);
+        var jan = await _billing.GenerateAsync(account.Id, BillingCycles.Jan);
         jan.NewBalance.Should().Be(200m);
 
         await _billing.ApplyStatementPaymentAsync(jan.Id, 50m, On(2025, 2, 5), CancellationToken.None);
 
-        var feb = await GenerateAsync(account.Id, Feb);
+        var feb = await _billing.GenerateAsync(account.Id, BillingCycles.Feb);
 
         feb.PreviousBalance.Should().Be(200m);
         feb.Payments.Should().Be(-50m, "the payment belongs to the cycle it was posted in");
@@ -90,7 +83,7 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
             .SingleAsync(x => x.AccountId == account.Id && x.Type == LedgerEntryType.Payment);
         payment.StatementId.Should().Be(feb.Id);
 
-        var mar = await GenerateAsync(account.Id, Mar);
+        var mar = await _billing.GenerateAsync(account.Id, BillingCycles.Mar);
         mar.PreviousBalance.Should().Be(150m, "the payment is carried into every later cycle");
     }
 
@@ -127,9 +120,6 @@ public sealed class StatementCycleIntegrationTests : IntegrationTestBase
     }
 
     private static DateTimeOffset On(int year, int month, int day) => new(year, month, day, 12, 0, 0, TimeSpan.Zero);
-
-    private Task<StatementEntity> GenerateAsync(Guid accountId, (DateTime Start, DateTime End, DateTime StatementDate) cycle) =>
-        _billing.GenerateStatementAsync(accountId, cycle.Start, cycle.End, cycle.StatementDate, dueDateOverride: null, CancellationToken.None);
 
     private void AddEntry(Guid accountId, LedgerEntryType type, decimal amount, DateTimeOffset postedOn) =>
         Db.LedgerEntries.Add(new LedgerEntryEntity
