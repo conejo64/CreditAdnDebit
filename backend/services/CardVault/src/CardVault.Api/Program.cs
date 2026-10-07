@@ -703,9 +703,14 @@ if (app.Environment.IsDevelopment())
 }
 app.UseAuthentication();
 app.UseMiddleware<RequestIdMiddleware>();
+// G1-T5 (slice-2 follow-up): the limiter runs after authentication but BEFORE authorization.
+// After authorization, an anonymous request to an [Authorize] endpoint was answered 401 without
+// ever being counted, so brute force against protected auth endpoints was never throttled.
+// After authentication, HttpContext.User is populated, so the per-user vault_* partitions keep
+// keying by principal instead of degrading to the client IP.
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapPrometheusScrapingEndpoint("/metrics");
-app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { service = "CardVault", status = "ok" }));
 // G1-T5: public key set (RFC 7517) so validators and tooling can fetch the current signing
 // key by kid. Public material only; short public cache so a rotation propagates in minutes.

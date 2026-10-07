@@ -71,12 +71,30 @@ public sealed class AuthRateLimitHttpTests : IDisposable
     }
 
     [Fact]
+    public async Task AnonymousRequestsToAnAuthorizeEndpoint_CountTowardTheLimit()
+    {
+        // G1-T5: the limiter runs before authorization, so an attacker spraying an
+        // [Authorize] endpoint without credentials burns the window instead of getting an
+        // uncounted 401 every time. mfa/enable uses the auth_mfa policy (limit 2 here).
+        for (var i = 0; i < 2; i++)
+        {
+            var anonymous = await _client.PostAsJsonAsync("/api/auth/mfa/enable", new MfaEnableRequest("Whatever1234!"));
+            anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+                "requests inside the window reach authorization and are rejected there");
+        }
+
+        var rejected = await _client.PostAsJsonAsync("/api/auth/mfa/enable", new MfaEnableRequest("Whatever1234!"));
+
+        rejected.StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+            "anonymous hits must be counted before authorization short-circuits them");
+    }
+
+    [Fact]
     public async Task MfaVerifyAndEnable_ShareOneWindow_AndReturn429WhenExceeded()
     {
-        // G1-T3: mfa/enable is [Authorize] and UseRateLimiter runs after UseAuthorization,
-        // so only an authenticated enable call reaches the limiter. The window is filled
-        // with anonymous verify attempts (bogus pending token -> 401) and then an
-        // authenticated enable call proves it shares the same partition.
+        // G1-T3: mfa/enable is [Authorize]. The window is filled with anonymous verify
+        // attempts (bogus pending token -> 401) and then an authenticated enable call
+        // proves it shares the same partition.
         for (var i = 0; i < 2; i++)
         {
             var verify = await _client.PostAsJsonAsync("/api/auth/mfa/verify",
