@@ -361,8 +361,10 @@ public sealed class SwitchTxnConsumer : BackgroundService
         var cycleStart = st.CycleStart;
         var cycleEnd = st.CycleEnd;
 
+        // Deferred principal is owed but billed through installments; it never enters a statement
+        // balance directly (mirrors BillingService.GenerateStatementAsync).
         var prevBalance = await db.LedgerEntries.AsNoTracking()
-            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStart)
+            .Where(x => x.AccountId == accountId && x.PostedOn < cycleStart && x.Type != LedgerEntryType.DeferredPrincipal)
             .SumAsync(x => x.Amount, ct);
 
         var cycleEntries = await db.LedgerEntries.AsNoTracking()
@@ -389,11 +391,15 @@ public sealed class SwitchTxnConsumer : BackgroundService
         st.Fees = cycleEntries.Where(x => x.Type == LedgerEntryType.Fee).Sum(x => x.Amount);
         st.Interest = cycleEntries.Where(x => x.Type == LedgerEntryType.Interest).Sum(x => x.Amount);
 
+        // Installments already billed into this cycle by BillingService (ledger debits dated at the
+        // cycle close). DeferredPrincipal entries are excluded from every bucket.
+        var installments = cycleEntries.Where(x => x.Type == LedgerEntryType.Installment).Sum(x => x.Amount);
+
         st.InterestAccrued = st.Interest;
 
         // ADR-6: delegate terminal bucket-to-totals formula to BillingService.ApplyClosingTotals.
         // Consumer sets NewBalance to computedBalance first so both paths feed identical input.
-        var computedBalance = st.PreviousBalance + st.Purchases + st.Payments + st.Fees + st.Interest;
+        var computedBalance = st.PreviousBalance + st.Purchases + st.Payments + st.Fees + st.Interest + installments;
         st.NewBalance = computedBalance;
         billing.ApplyClosingTotals(st);
 
