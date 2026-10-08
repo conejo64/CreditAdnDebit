@@ -22,6 +22,7 @@ public sealed class IsoAuditWebApplicationFactory : WebApplicationFactory<Progra
 {
     internal const string Issuer   = "CardVault";
     internal const string Audience = "CardSwitch";
+    internal const string TestIsoSwitchDbConnectionString = "Host=localhost;Port=5432;Database=isoswitch_test;Username=test";
 
     // G1-T5: one ephemeral P-256 pair per test process, shared by every factory instance.
     private static readonly EcdsaKeyPairPem TestKeyPair = EcdsaKeyMaterial.GenerateKeyPair();
@@ -47,6 +48,10 @@ public sealed class IsoAuditWebApplicationFactory : WebApplicationFactory<Progra
         builder.UseSetting("Jwt:PublicKeyPem", PublicKeyPem);
         builder.UseSetting("Jwt:Issuer", Issuer);
         builder.UseSetting("Jwt:Audience", Audience);
+        // G1-T7: no connection string is committed any more and startup refuses to run
+        // without one. The DbContext is replaced with InMemory below, so this value is
+        // never connected to; it carries no password on purpose.
+        builder.UseSetting("ConnectionStrings:IsoSwitchDb", TestIsoSwitchDbConnectionString);
 
         builder.ConfigureTestServices(services =>
         {

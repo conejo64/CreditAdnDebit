@@ -3,7 +3,10 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_PASSWORD: postgres
+      # G1-T7: no committed default password. PGPASSWORD in .env is the single source: the
+      # server is initialised with it here, and the .NET services read it through Npgsql's
+      # standard PGPASSWORD support (env_file), so no connection string carries a password.
+      POSTGRES_PASSWORD: ${PGPASSWORD:?set PGPASSWORD in .env (PostgreSQL superuser password, see docs/runbooks/database-credentials.md)}
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
     volumes:
@@ -88,10 +91,10 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
-      # W-1 fix: a single shared .env cannot hold two different Postgres databases.
-      # .env carries ConnectionStrings__Postgres=isoswitch (for IsoSwitch, no override).
-      # CardVault overrides here to its own DB, matching the Kafka override pattern.
-      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres;Password=postgres
+      # W-1 fix: a single shared .env cannot hold two different Postgres databases, so each
+      # service names its own database here. G1-T7: no password in the connection string;
+      # Npgsql takes it from PGPASSWORD (.env, via env_file).
+      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=cardvault;Username=postgres
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       # G1-T5: issuer key pair. The private key is a mounted secret (see secrets: below);
       # the public key is the same value every validator receives.
@@ -118,6 +121,8 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
+      # G1-T7: required at startup; password from PGPASSWORD (.env, via env_file).
+      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=isoswitch;Username=postgres
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       # G1-T5: validator — public key only.
       - Jwt__PublicKeyPem=${JWT_PUBLIC_KEY_PEM:?set JWT_PUBLIC_KEY_PEM in .env (CardVault ES256 public key, PEM)}
@@ -138,6 +143,8 @@ services:
     environment:
       # Kafka bootstrap — always kafka:9092 for inter-container networking
       - Kafka__BootstrapServers=kafka:9092
+      # G1-T7: required at startup (the compiled fallback is gone); password from PGPASSWORD.
+      - ConnectionStrings__IsoSwitchDb=Host=postgres;Port=5432;Database=isoswitch;Username=postgres
       # G1-T5: validator — public key only.
       - Jwt__PublicKeyPem=${JWT_PUBLIC_KEY_PEM:?set JWT_PUBLIC_KEY_PEM in .env (CardVault ES256 public key, PEM)}
     depends_on:

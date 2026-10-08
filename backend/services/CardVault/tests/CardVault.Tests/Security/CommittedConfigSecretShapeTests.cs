@@ -76,6 +76,11 @@ public sealed class CommittedConfigSecretShapeTests
     [Theory]
     [InlineData("backend/services/CardVault/src/CardVault.Api/appsettings.Development.json")]
     [InlineData("backend/services/IsoSwitch/src/IsoSwitch.Api/appsettings.Development.json")]
+    // G1-T7: the base files ship to every environment, and IsoAudit has its own pair.
+    [InlineData("backend/services/CardVault/src/CardVault.Api/appsettings.json")]
+    [InlineData("backend/services/IsoSwitch/src/IsoSwitch.Api/appsettings.json")]
+    [InlineData("backend/services/IsoAudit/src/IsoAudit.Api/appsettings.json")]
+    [InlineData("backend/services/IsoAudit/src/IsoAudit.Api/appsettings.Development.json")]
     public void CommittedConfig_ConnectionStrings_ContainNoInlinePassword(string relativePath)
     {
         var root = LoadJson(relativePath);
@@ -86,9 +91,27 @@ public sealed class CommittedConfigSecretShapeTests
         foreach (var prop in connectionStrings.EnumerateObject())
         {
             var value = prop.Value.GetString() ?? string.Empty;
-            value.Should().NotContain("Password=",
-                because: $"ConnectionStrings:{prop.Name} must not contain an inline password in committed config");
+            // Same shape as the gitleaks rule inline-connection-string-password, so this
+            // test fails on anything the secret scan would flag (Password= or Pwd=, any case).
+            InlinePasswordPattern.IsMatch(value).Should().BeFalse(
+                because: $"ConnectionStrings:{prop.Name} in {relativePath} must not contain an inline password in committed config");
         }
+    }
+
+    private static readonly Regex InlinePasswordPattern =
+        new(@"(?i)(Password|Pwd)\s*=\s*[^;""'\s]+", RegexOptions.Compiled);
+
+    /// <summary>
+    /// G1-T7: IsoAudit used to fall back to a compiled-in connection string with the default
+    /// postgres/postgres credentials when none was configured. The fallback must be gone.
+    /// </summary>
+    [Fact]
+    public void IsoAuditProgram_HasNoCompiledConnectionStringFallback()
+    {
+        var program = File.ReadAllText(Path.Combine(FindRepoRoot(), "backend/services/IsoAudit/src/IsoAudit.Api/Program.cs"));
+
+        InlinePasswordPattern.IsMatch(program).Should().BeFalse(
+            because: "IsoAudit.Api must not compile in a connection string with a password");
     }
 
     // ─── No seed credential keys present ──────────────────────────────────────
