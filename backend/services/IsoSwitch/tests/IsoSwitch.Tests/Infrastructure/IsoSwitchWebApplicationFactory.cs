@@ -26,6 +26,7 @@ public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Progr
     internal const string TestAdminApiKey        = "TestAdminApiKeyForIsoSwitchTests32PlusChars";
     internal const string Issuer                 = "CardVault";
     internal const string Audience               = "CardSwitch";
+    internal const string TestPostgresConnectionString = "Host=localhost;Port=5432;Database=isoswitch_test;Username=test";
 
     // G1-T5: one ephemeral P-256 pair per test process, shared by every factory instance.
     private static readonly EcdsaKeyPairPem TestKeyPair = EcdsaKeyMaterial.GenerateKeyPair();
@@ -51,6 +52,10 @@ public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Progr
         builder.UseSetting("Jwt:PublicKeyPem", PublicKeyPem);
         // SEC-05/SEC-11: operator-supplied admin API key fail-fast validation
         builder.UseSetting("Admin:ApiKey", TestAdminApiKey);
+        // G1-T7: no connection string is committed any more and startup refuses to run
+        // without one. The DbContext is replaced with InMemory below, so this value is
+        // never connected to; it carries no password on purpose.
+        builder.UseSetting("ConnectionStrings:Postgres", TestPostgresConnectionString);
 
         builder.ConfigureTestServices(services =>
         {

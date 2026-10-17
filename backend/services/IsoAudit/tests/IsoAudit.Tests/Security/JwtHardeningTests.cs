@@ -165,6 +165,7 @@ internal sealed class ProductionIsoAuditWebApplicationFactory : WebApplicationFa
         builder.UseSetting("Jwt:PublicKeyPem", IsoAuditWebApplicationFactory.PublicKeyPem);
         builder.UseSetting("Jwt:Issuer", "CardVault");
         builder.UseSetting("Jwt:Audience", "CardSwitch");
+        builder.UseSetting("ConnectionStrings:IsoSwitchDb", IsoAuditWebApplicationFactory.TestIsoSwitchDbConnectionString);
 
         builder.ConfigureTestServices(services =>
         {

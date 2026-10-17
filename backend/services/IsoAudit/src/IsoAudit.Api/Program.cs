@@ -76,11 +76,18 @@ builder.Services.AddAuthorization(options =>
 });
 
 
+// G1-T7: the compiled-in postgres/postgres fallback is gone. Fail closed at startup, in every
+// environment, when the connection string is not configured. Development supplies it through
+// the ConnectionStrings__IsoSwitchDb environment variable (docs/runbooks/database-credentials.md).
+var isoSwitchDbConnectionString = builder.Configuration.GetConnectionString("IsoSwitchDb");
+if (string.IsNullOrWhiteSpace(isoSwitchDbConnectionString))
+    throw new InvalidOperationException(
+        "Missing required configuration value: ConnectionStrings:IsoSwitchDb. " +
+        "Set it via the ConnectionStrings__IsoSwitchDb environment variable or a secrets-manager provider " +
+        "before starting IsoAudit.Api (see docs/runbooks/database-credentials.md).");
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
 {
-    var cs = builder.Configuration.GetConnectionString("IsoSwitchDb") ??
-             "Host=localhost;Port=5432;Database=isoswitch;Username=postgres;Password=postgres";
-    opt.UseNpgsql(cs);
+    opt.UseNpgsql(isoSwitchDbConnectionString);
     opt.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
 

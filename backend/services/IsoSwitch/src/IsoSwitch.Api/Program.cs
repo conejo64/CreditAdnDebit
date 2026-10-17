@@ -137,8 +137,18 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Is
 // Postgres (switch db)
 // PendingModelChangesWarning is no longer silenced here: the snapshot is generated with the
 // baseline and IsoSwitch.IntegrationTests/CleanDatabaseMigrateTest asserts it matches the model.
+// G1-T7: no connection string (and no default credential) is committed. Fail closed at
+// startup, in every environment, when none is configured, rather than starting and failing
+// on the first database call. Development supplies it through the
+// ConnectionStrings__Postgres environment variable (docs/runbooks/database-credentials.md).
+var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres");
+if (string.IsNullOrWhiteSpace(postgresConnectionString))
+    throw new InvalidOperationException(
+        "Missing required configuration value: ConnectionStrings:Postgres. " +
+        "Set it via the ConnectionStrings__Postgres environment variable or a secrets-manager provider " +
+        "before starting IsoSwitch.Api (see docs/runbooks/database-credentials.md).");
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"), b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence")));
+    opt.UseNpgsql(postgresConnectionString, b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence")));
 builder.Services.AddSingleton<ISwitchEventPublisher, SwitchEventPublisher>();
 builder.Services.AddScoped<IIsoAuditService, IsoAuditService>();
 builder.Services.AddScoped<BinaryIsoAuditService>();
