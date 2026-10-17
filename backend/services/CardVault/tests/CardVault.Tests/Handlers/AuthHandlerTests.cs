@@ -56,6 +56,17 @@ public sealed class AuthHandlerTests : IDisposable
         return stub;
     }
 
+    /// <summary>
+    /// G1-T3: token service stub for the login MFA branch — issues a fixed pending token.
+    /// </summary>
+    private static IUserTokenService CreateMfaPendingTokenService(string token = "pending-token", string jti = "jti-1")
+    {
+        var stub = Substitute.For<IUserTokenService>();
+        stub.CreateMfaPendingToken(Arg.Any<AppUser>())
+            .Returns(new MfaPendingTokenIssue(token, jti, DateTimeOffset.UtcNow.AddMinutes(5)));
+        return stub;
+    }
+
     public void Dispose()
     {
         _db.Dispose();
@@ -98,9 +109,9 @@ public sealed class AuthHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task LoginCommand_MfaEnabled_ShouldReturn200WithMfaRequired()
+    public async Task LoginCommand_MfaEnabled_ShouldReturn200WithMfaRequired_AndAPendingTokenInsteadOfASession()
     {
-        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+        var handler = new LoginCommandHandler(_userManager, CreateMfaPendingTokenService(), _idDb, null!);
         var request = new CardVault.Application.Contracts.LoginRequest("mfa@demo.com", "correctpass");
 
         var user = new AppUser { Id = "u2", UserName = "mfa@demo.com", Email = "mfa@demo.com" };
@@ -118,6 +129,13 @@ public sealed class AuthHandlerTests : IDisposable
         ok.Should().NotBeNull("handler must return Ok<AuthSessionResponse>");
         ok!.Value!.MfaRequired.Should().BeTrue();
         ok.Value.Message.Should().Be("MFA_REQUIRED");
+        ok.Value.MfaPendingToken.Should().Be("pending-token");
+        ok.Value.AccessToken.Should().BeNull();
+        ok.Value.RefreshToken.Should().BeNull();
+        _idDb.RefreshTokens.Should().BeEmpty("no session exists before the second factor");
+        // G1-T3: the jti is recorded server-side so the token is single-use.
+        await _userManager.Received(1).SetAuthenticationTokenAsync(
+            user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName, "jti-1");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -161,9 +179,9 @@ public sealed class AuthHandlerTests : IDisposable
     [Fact]
     public async Task LoginCommand_CorrectPassword_ShouldResetAccessFailureCount()
     {
-        // MFA-enabled path: the handler returns before TokenService, which keeps the test
-        // free of live Identity services while still passing the password check.
-        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+        // MFA-enabled path: the handler returns before issuing a session, which keeps the
+        // test free of live Identity services while still passing the password check.
+        var handler = new LoginCommandHandler(_userManager, CreateMfaPendingTokenService(), _idDb, null!);
         var request = new CardVault.Application.Contracts.LoginRequest("mfa@demo.com", "correctpass");
 
         var user = new AppUser { Id = "u2", UserName = "mfa@demo.com", Email = "mfa@demo.com" };
@@ -201,17 +219,21 @@ public sealed class AuthHandlerTests : IDisposable
         locked.Should().BeAssignableTo<IValueHttpResult>().Which.Value.Should().BeEquivalentTo(unknownJson);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // G1-T3: MFA enrolment bound to the authenticated caller
+    // ─────────────────────────────────────────────────────────────
+
     [Fact]
     public async Task MfaEnableCommand_WrongPassword_ShouldCountAccessFailure()
     {
         var handler = new MfaEnableCommandHandler(_userManager);
-        var request = new CardVault.Application.Contracts.MfaEnableRequest("user@demo.com", "wrongpass");
+        var request = new CardVault.Application.Contracts.MfaEnableRequest("wrongpass");
 
         var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
-        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.FindByIdAsync("u1").Returns(user);
         _userManager.CheckPasswordAsync(user, request.Password).Returns(false);
 
-        var result = await handler.Handle(new MfaEnableCommand(request), CancellationToken.None);
+        var result = await handler.Handle(new MfaEnableCommand("u1", request), CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
         await _userManager.Received(1).AccessFailedAsync(user);
@@ -222,48 +244,110 @@ public sealed class AuthHandlerTests : IDisposable
     public async Task MfaEnableCommand_LockedOutUser_ShouldReturn401WithoutCheckingPassword()
     {
         var handler = new MfaEnableCommandHandler(_userManager);
-        var request = new CardVault.Application.Contracts.MfaEnableRequest("locked@demo.com", "correctpass");
+        var request = new CardVault.Application.Contracts.MfaEnableRequest("correctpass");
 
         var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
-        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.FindByIdAsync("u3").Returns(user);
         _userManager.IsLockedOutAsync(user).Returns(true);
 
-        var result = await handler.Handle(new MfaEnableCommand(request), CancellationToken.None);
+        var result = await handler.Handle(new MfaEnableCommand("u3", request), CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
         await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
     }
 
     [Fact]
-    public async Task MfaVerifyCommand_WrongPassword_ShouldCountAccessFailure()
+    public async Task MfaEnableCommand_UnknownCaller_ShouldReturn401()
     {
-        var handler = new MfaVerifyCommandHandler(_userManager, null!, _idDb, null!);
-        var request = new CardVault.Application.Contracts.MfaVerifyRequest("user@demo.com", "wrongpass", "000000");
+        var handler = new MfaEnableCommandHandler(_userManager);
+        _userManager.FindByIdAsync("ghost").Returns((AppUser?)null);
 
-        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
-        _userManager.FindByEmailAsync(request.Email).Returns(user);
-        _userManager.CheckPasswordAsync(user, request.Password).Returns(false);
+        var result = await handler.Handle(
+            new MfaEnableCommand("ghost", new CardVault.Application.Contracts.MfaEnableRequest("whatever")),
+            CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().ResetAuthenticatorKeyAsync(Arg.Any<AppUser>());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // G1-T3: MFA verification gated by the pending token
+    // ─────────────────────────────────────────────────────────────
+
+    private static IUserTokenService CreateValidatingTokenService(MfaPendingTokenClaims? claims)
+    {
+        var stub = Substitute.For<IUserTokenService>();
+        stub.ValidateMfaPendingToken(Arg.Any<string>()).Returns(claims);
+        return stub;
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_InvalidPendingToken_ShouldReturn401WithoutLookingUpAnyUser()
+    {
+        var handler = new MfaVerifyCommandHandler(_userManager, CreateValidatingTokenService(null), _idDb, null!);
+        var request = new CardVault.Application.Contracts.MfaVerifyRequest("garbage", "000000");
 
         var result = await handler.Handle(new MfaVerifyCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().FindByIdAsync(Arg.Any<string>());
+        await _userManager.DidNotReceive().VerifyTwoFactorTokenAsync(Arg.Any<AppUser>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_PendingTokenNotRecordedForTheUser_ShouldReturn401WithoutCheckingTheCode()
+    {
+        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
+        _userManager.FindByIdAsync("u1").Returns(user);
+        _userManager.GetAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName)
+            .Returns("a-different-jti");
+        var tokens = CreateValidatingTokenService(new MfaPendingTokenClaims("u1", "jti-1"));
+        var handler = new MfaVerifyCommandHandler(_userManager, tokens, _idDb, null!);
+
+        var result = await handler.Handle(
+            new MfaVerifyCommand(new CardVault.Application.Contracts.MfaVerifyRequest("signed-but-consumed", "000000")),
+            CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().VerifyTwoFactorTokenAsync(user, Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_LockedOutUser_ShouldReturn401WithoutCheckingTheCode()
+    {
+        var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
+        _userManager.FindByIdAsync("u3").Returns(user);
+        _userManager.IsLockedOutAsync(user).Returns(true);
+        _userManager.GetAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName)
+            .Returns("jti-1");
+        var handler = new MfaVerifyCommandHandler(_userManager, CreateValidatingTokenService(new MfaPendingTokenClaims("u3", "jti-1")), _idDb, null!);
+
+        var result = await handler.Handle(
+            new MfaVerifyCommand(new CardVault.Application.Contracts.MfaVerifyRequest("pending", "000000")),
+            CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().VerifyTwoFactorTokenAsync(user, Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_WrongCode_ShouldReturn401_CountAccessFailure_AndKeepTheChallenge()
+    {
+        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
+        _userManager.FindByIdAsync("u1").Returns(user);
+        _userManager.GetAuthenticationTokenAsync(user, MfaPendingChallenge.LoginProvider, MfaPendingChallenge.TokenName)
+            .Returns("jti-1");
+        _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, "000000").Returns(false);
+        var handler = new MfaVerifyCommandHandler(_userManager, CreateValidatingTokenService(new MfaPendingTokenClaims("u1", "jti-1")), _idDb, null!);
+
+        var result = await handler.Handle(
+            new MfaVerifyCommand(new CardVault.Application.Contracts.MfaVerifyRequest("pending", "000000")),
+            CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
         await _userManager.Received(1).AccessFailedAsync(user);
-    }
-
-    [Fact]
-    public async Task MfaVerifyCommand_LockedOutUser_ShouldReturn401WithoutCheckingPassword()
-    {
-        var handler = new MfaVerifyCommandHandler(_userManager, null!, _idDb, null!);
-        var request = new CardVault.Application.Contracts.MfaVerifyRequest("locked@demo.com", "correctpass", "000000");
-
-        var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
-        _userManager.FindByEmailAsync(request.Email).Returns(user);
-        _userManager.IsLockedOutAsync(user).Returns(true);
-
-        var result = await handler.Handle(new MfaVerifyCommand(request), CancellationToken.None);
-
-        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
-        await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
+        await _userManager.DidNotReceive().RemoveAuthenticationTokenAsync(user, Arg.Any<string>(), Arg.Any<string>());
+        _idDb.RefreshTokens.Should().BeEmpty();
     }
 
     // ─────────────────────────────────────────────────────────────

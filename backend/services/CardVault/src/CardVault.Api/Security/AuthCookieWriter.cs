@@ -44,8 +44,9 @@ public static class AuthCookieWriter
     /// <summary>
     /// If <paramref name="result"/> is a successful <see cref="AuthSessionResponse"/>
     /// carrying token material, writes the cv_at/cv_rt cookies and returns a stripped body
-    /// (mfaRequired/message/user only). Any other result (errors, MFA-required-without-
-    /// tokens) is passed through unchanged.
+    /// (mfaRequired/mfaPendingToken/message/user only). Any other result (errors) is passed
+    /// through unchanged. The MFA pending token (G1-T3) is not session material: it stays in
+    /// the body so the client can present it to mfa/verify.
     /// </summary>
     /// <remarks>
     /// SECURITY-CRITICAL COUPLING (SEC-03): cookies are written ONLY when
@@ -72,6 +73,7 @@ public static class AuthCookieWriter
         return Results.Ok(new
         {
             mfaRequired = session.MfaRequired,
+            mfaPendingToken = session.MfaPendingToken,
             message = session.Message,
             user = session.User
         });

@@ -71,20 +71,42 @@ public sealed class AuthRateLimitHttpTests : IDisposable
     }
 
     [Fact]
-    public async Task MfaEnableAndVerify_ShareOneWindow_AndReturn429WhenExceeded()
+    public async Task MfaVerifyAndEnable_ShareOneWindow_AndReturn429WhenExceeded()
     {
-        var enable = await _client.PostAsJsonAsync("/api/auth/mfa/enable",
-            new MfaEnableRequest("mfa-ratelimit@demo.com", "Whatever1234!"));
-        enable.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        // G1-T3: mfa/enable is [Authorize] and UseRateLimiter runs after UseAuthorization,
+        // so only an authenticated enable call reaches the limiter. The window is filled
+        // with anonymous verify attempts (bogus pending token -> 401) and then an
+        // authenticated enable call proves it shares the same partition.
+        for (var i = 0; i < 2; i++)
+        {
+            var verify = await _client.PostAsJsonAsync("/api/auth/mfa/verify",
+                new MfaVerifyRequest("not-a-pending-token", "000000"));
+            verify.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
 
-        var verify = await _client.PostAsJsonAsync("/api/auth/mfa/verify",
-            new MfaVerifyRequest("mfa-ratelimit@demo.com", "Whatever1234!", "000000"));
-        verify.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        using var enable = new HttpRequestMessage(HttpMethod.Post, "/api/auth/mfa/enable")
+        {
+            Content = JsonContent.Create(new MfaEnableRequest("Whatever1234!"))
+        };
+        enable.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MintBearer());
 
-        var rejected = await _client.PostAsJsonAsync("/api/auth/mfa/enable",
-            new MfaEnableRequest("mfa-ratelimit@demo.com", "Whatever1234!"));
+        var rejected = await _client.SendAsync(enable);
 
         rejected.StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
             "mfa/enable and mfa/verify share the auth_mfa partition");
+    }
+
+    private static string MintBearer()
+    {
+        var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes(CardVaultWebApplicationFactory.SigningKey));
+        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: CardVaultWebApplicationFactory.Issuer,
+            audience: CardVaultWebApplicationFactory.Audience,
+            claims: [new System.Security.Claims.Claim("uid", Guid.NewGuid().ToString())],
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+        return new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
     }
 }

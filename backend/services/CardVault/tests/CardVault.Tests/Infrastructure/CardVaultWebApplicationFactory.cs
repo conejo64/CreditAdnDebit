@@ -24,11 +24,12 @@ namespace CardVault.Tests.Infrastructure;
 /// </summary>
 public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Program>
 {
-    // Must match appsettings.json Jwt section
-    private const string Issuer    = "CardVault";
-    private const string Audience  = "CardSwitch";
+    // Must match appsettings.json Jwt section. Internal so auth tests can forge tokens
+    // of a specific shape (e.g. an expired MFA pending token) against the test host.
+    internal const string Issuer    = "CardVault";
+    internal const string Audience  = "CardSwitch";
     // Valid non-placeholder test key (32+ chars, passes JwtOptionsValidator SEC-2).
-    private const string SigningKey = "TestSigningKeyForCardVaultIntegrationTests";
+    internal const string SigningKey = "TestSigningKeyForCardVaultIntegrationTests";
 
     // SEC-01: appsettings.Development.json no longer carries a live Vault:Keys value
     // (the previous k1/k2 values were purged from committed config). VaultCrypto still
