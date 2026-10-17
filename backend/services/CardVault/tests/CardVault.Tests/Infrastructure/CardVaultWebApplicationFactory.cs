@@ -59,6 +59,13 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
         builder.UseSetting("ConnectionStrings:Postgres", "Host=localhost;Database=test;Username=test;Password=test");
         builder.UseSetting("ConnectionStrings:SqlServerIdentity", "Server=localhost;Database=test;Trusted_Connection=True;TrustServerCertificate=true");
 
+        // G1-T1: TestServer reports no remote IP, so every request in a shared factory
+        // lands in one rate-limit partition. Lift the auth limits here so unrelated HTTP
+        // tests never trip 429; the rate-limit tests lower them again per factory.
+        builder.UseSetting("Auth:RateLimits:Login:PermitLimit", "100000");
+        builder.UseSetting("Auth:RateLimits:Mfa:PermitLimit", "100000");
+        builder.UseSetting("Auth:RateLimits:Refresh:PermitLimit", "100000");
+
         builder.ConfigureTestServices(services =>
         {
             // ── Replace CardVaultDbContext with InMemory ──────────────────

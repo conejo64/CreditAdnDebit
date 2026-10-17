@@ -121,6 +121,152 @@ public sealed class AuthHandlerTests : IDisposable
     }
 
     // ─────────────────────────────────────────────────────────────
+    // G1-T1: lockout counting on every password check (PCI DSS v4 8.3.4)
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task LoginCommand_LockedOutUser_ShouldReturn401WithoutCheckingPassword()
+    {
+        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+        var request = new CardVault.Application.Contracts.LoginRequest("locked@demo.com", "correctpass");
+
+        var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.IsLockedOutAsync(user).Returns(true);
+        _userManager.CheckPasswordAsync(user, request.Password).Returns(true);
+
+        var result = await handler.Handle(new LoginCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>()
+              .Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task LoginCommand_WrongPassword_ShouldCountAccessFailure()
+    {
+        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+        var request = new CardVault.Application.Contracts.LoginRequest("user@demo.com", "wrongpass");
+
+        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.CheckPasswordAsync(user, request.Password).Returns(false);
+
+        await handler.Handle(new LoginCommand(request), CancellationToken.None);
+
+        await _userManager.Received(1).AccessFailedAsync(user);
+        await _userManager.DidNotReceive().ResetAccessFailedCountAsync(user);
+    }
+
+    [Fact]
+    public async Task LoginCommand_CorrectPassword_ShouldResetAccessFailureCount()
+    {
+        // MFA-enabled path: the handler returns before TokenService, which keeps the test
+        // free of live Identity services while still passing the password check.
+        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+        var request = new CardVault.Application.Contracts.LoginRequest("mfa@demo.com", "correctpass");
+
+        var user = new AppUser { Id = "u2", UserName = "mfa@demo.com", Email = "mfa@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.CheckPasswordAsync(user, request.Password).Returns(true);
+        _userManager.GetTwoFactorEnabledAsync(user).Returns(true);
+
+        await handler.Handle(new LoginCommand(request), CancellationToken.None);
+
+        await _userManager.Received(1).ResetAccessFailedCountAsync(user);
+        await _userManager.DidNotReceive().AccessFailedAsync(user);
+    }
+
+    [Fact]
+    public async Task LoginCommand_UnknownUser_WrongPassword_LockedOut_ShouldShareOneResponseShape()
+    {
+        var handler = new LoginCommandHandler(_userManager, null!, _idDb, null!);
+
+        _userManager.FindByEmailAsync("ghost@demo.com").Returns((AppUser?)null);
+
+        var wrongUser = new AppUser { Id = "w", UserName = "wrong@demo.com", Email = "wrong@demo.com" };
+        _userManager.FindByEmailAsync("wrong@demo.com").Returns(wrongUser);
+        _userManager.CheckPasswordAsync(wrongUser, Arg.Any<string>()).Returns(false);
+
+        var lockedUser = new AppUser { Id = "l", UserName = "locked@demo.com", Email = "locked@demo.com" };
+        _userManager.FindByEmailAsync("locked@demo.com").Returns(lockedUser);
+        _userManager.IsLockedOutAsync(lockedUser).Returns(true);
+
+        var unknown = await handler.Handle(new LoginCommand(new CardVault.Application.Contracts.LoginRequest("ghost@demo.com", "x")), CancellationToken.None);
+        var wrong = await handler.Handle(new LoginCommand(new CardVault.Application.Contracts.LoginRequest("wrong@demo.com", "x")), CancellationToken.None);
+        var locked = await handler.Handle(new LoginCommand(new CardVault.Application.Contracts.LoginRequest("locked@demo.com", "x")), CancellationToken.None);
+
+        var unknownJson = unknown.Should().BeAssignableTo<IValueHttpResult>().Which.Value;
+        wrong.Should().BeAssignableTo<IValueHttpResult>().Which.Value.Should().BeEquivalentTo(unknownJson);
+        locked.Should().BeAssignableTo<IValueHttpResult>().Which.Value.Should().BeEquivalentTo(unknownJson);
+    }
+
+    [Fact]
+    public async Task MfaEnableCommand_WrongPassword_ShouldCountAccessFailure()
+    {
+        var handler = new MfaEnableCommandHandler(_userManager);
+        var request = new CardVault.Application.Contracts.MfaEnableRequest("user@demo.com", "wrongpass");
+
+        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.CheckPasswordAsync(user, request.Password).Returns(false);
+
+        var result = await handler.Handle(new MfaEnableCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.Received(1).AccessFailedAsync(user);
+        await _userManager.DidNotReceive().ResetAuthenticatorKeyAsync(user);
+    }
+
+    [Fact]
+    public async Task MfaEnableCommand_LockedOutUser_ShouldReturn401WithoutCheckingPassword()
+    {
+        var handler = new MfaEnableCommandHandler(_userManager);
+        var request = new CardVault.Application.Contracts.MfaEnableRequest("locked@demo.com", "correctpass");
+
+        var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.IsLockedOutAsync(user).Returns(true);
+
+        var result = await handler.Handle(new MfaEnableCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_WrongPassword_ShouldCountAccessFailure()
+    {
+        var handler = new MfaVerifyCommandHandler(_userManager, null!, _idDb, null!);
+        var request = new CardVault.Application.Contracts.MfaVerifyRequest("user@demo.com", "wrongpass", "000000");
+
+        var user = new AppUser { Id = "u1", UserName = "user@demo.com", Email = "user@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.CheckPasswordAsync(user, request.Password).Returns(false);
+
+        var result = await handler.Handle(new MfaVerifyCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.Received(1).AccessFailedAsync(user);
+    }
+
+    [Fact]
+    public async Task MfaVerifyCommand_LockedOutUser_ShouldReturn401WithoutCheckingPassword()
+    {
+        var handler = new MfaVerifyCommandHandler(_userManager, null!, _idDb, null!);
+        var request = new CardVault.Application.Contracts.MfaVerifyRequest("locked@demo.com", "correctpass", "000000");
+
+        var user = new AppUser { Id = "u3", UserName = "locked@demo.com", Email = "locked@demo.com" };
+        _userManager.FindByEmailAsync(request.Email).Returns(user);
+        _userManager.IsLockedOutAsync(user).Returns(true);
+
+        var result = await handler.Handle(new MfaVerifyCommand(request), CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // RefreshTokenCommandHandler — rejection paths (no TokenService needed)
     // ─────────────────────────────────────────────────────────────
 

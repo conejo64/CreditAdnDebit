@@ -37,6 +37,15 @@ function isUnauthorizedError(error: unknown): boolean {
     return error instanceof HttpErrorResponse && error.status === 401;
 }
 
+// G1-T1: one message for every login rejection. The backend already answers 401 for an
+// unknown user, a wrong password and a locked account with the same body; a 429 (rate
+// limited) is folded into the same wording so the UI never hints at account state.
+const GENERIC_LOGIN_FAILURE = 'No se pudo iniciar sesión. Intente nuevamente en unos minutos.';
+
+function isLoginRejection(error: unknown): boolean {
+    return error instanceof HttpErrorResponse && (error.status === 401 || error.status === 429);
+}
+
 @Injectable({
     providedIn: 'root'
 })
@@ -82,9 +91,11 @@ export class AuthService {
 
                     this.router.navigate(['/app/dashboard']);
                 },
-                error: () => {
+                error: (error: unknown) => {
                     this.clearSession(false);
-                    this.authErrorSignal.set('No fue posible iniciar sesion con el backend.');
+                    this.authErrorSignal.set(
+                        isLoginRejection(error) ? GENERIC_LOGIN_FAILURE : 'No fue posible iniciar sesion con el backend.'
+                    );
                 }
             });
     }

@@ -41,6 +41,61 @@ public class RegisterUserCommandHandler : IRequestHandler<RegisterUserCommand, I
     }
 }
 
+/// <summary>
+/// G1-T1 (PCI DSS v4 8.3.4): every password check on an anonymous endpoint goes through
+/// Identity lockout. The three outcomes an attacker could probe (unknown user, wrong
+/// password, locked account) share one response so the account state is never disclosed.
+/// Lockout is driven through <see cref="UserManager{TUser}"/> directly (IsLockedOutAsync /
+/// AccessFailedAsync / ResetAccessFailedCountAsync) rather than SignInManager, so the
+/// handlers stay free of HttpContext and remain unit-testable with a substituted manager.
+/// </summary>
+internal static class PasswordCheckGuard
+{
+    private static string? _dummyHash;
+
+    public static IResult GenericUnauthorized()
+        => Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+
+    /// <summary>
+    /// Returns true only when the user exists, is not locked out and the password matches.
+    /// A wrong password increments the Identity failure counter (locking the account when
+    /// the configured threshold is reached); a correct one resets it.
+    /// </summary>
+    public static async Task<bool> VerifyAsync(UserManager<AppUser> users, AppUser? user, string password)
+    {
+        if (user is null)
+        {
+            // Spend roughly the same time as a real hash verification so an unknown
+            // e-mail is not cheaper to probe than a wrong password.
+            EqualizeTiming(users, password);
+            return false;
+        }
+
+        if (await users.IsLockedOutAsync(user))
+            return false;
+
+        if (!await users.CheckPasswordAsync(user, password))
+        {
+            await users.AccessFailedAsync(user);
+            return false;
+        }
+
+        await users.ResetAccessFailedCountAsync(user);
+        return true;
+    }
+
+    private static void EqualizeTiming(UserManager<AppUser> users, string password)
+    {
+        var hasher = users.PasswordHasher;
+        if (hasher is null)
+            return;
+
+        var probe = new AppUser();
+        _dummyHash ??= hasher.HashPassword(probe, Guid.NewGuid().ToString("N"));
+        hasher.VerifyHashedPassword(probe, _dummyHash, password ?? string.Empty);
+    }
+}
+
 public record LoginCommand(LoginRequest Request) : IRequest<IResult>;
 public class LoginCommandHandler : IRequestHandler<LoginCommand, IResult>
 {
@@ -61,11 +116,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, IResult>
     {
         var req = request.Request;
         var user = await _users.FindByEmailAsync(req.Email);
-        if (user is null)
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
-
-        if (!await _users.CheckPasswordAsync(user, req.Password))
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+        if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
+            return PasswordCheckGuard.GenericUnauthorized();
 
         // If user has MFA enabled, require it
         if (await _users.GetTwoFactorEnabledAsync(user))
@@ -105,11 +157,8 @@ public class MfaEnableCommandHandler : IRequestHandler<MfaEnableCommand, IResult
     {
         var req = request.Request;
         var user = await _users.FindByEmailAsync(req.Email);
-        if (user is null)
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
-
-        if (!await _users.CheckPasswordAsync(user, req.Password))
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+        if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
+            return PasswordCheckGuard.GenericUnauthorized();
 
         // Reset key and enable 2FA
         await _users.ResetAuthenticatorKeyAsync(user);
@@ -142,11 +191,8 @@ public class MfaVerifyCommandHandler : IRequestHandler<MfaVerifyCommand, IResult
     {
         var req = request.Request;
         var user = await _users.FindByEmailAsync(req.Email);
-        if (user is null)
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
-
-        if (!await _users.CheckPasswordAsync(user, req.Password))
-            return Results.Json(new { message = "Unauthorized" }, statusCode: 401);
+        if (!await PasswordCheckGuard.VerifyAsync(_users, user, req.Password))
+            return PasswordCheckGuard.GenericUnauthorized();
 
         var valid = await _users.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, req.Code);
         if (!valid)

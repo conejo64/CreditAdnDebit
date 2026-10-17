@@ -172,7 +172,15 @@ builder.Services.AddDbContext<IdentityAppDbContext>(opt => opt.UseSqlServer(buil
 // Identity + MFA
 builder.Services.AddIdentityCore<AppUser>(opt =>
 {
-    opt.Password.RequiredLength = 8;
+    // G1-T2: PCI DSS v4 8.3.6 — minimum 12 characters; the default character rules
+    // (digit, upper, lower, non-alphanumeric) stay in force.
+    opt.Password.RequiredLength = 12;
+    // G1-T1: PCI DSS v4 8.3.4 — lock after 10 consecutive failures for 30 minutes.
+    // The auth handlers drive the counter through UserManager (AccessFailedAsync /
+    // ResetAccessFailedCountAsync / IsLockedOutAsync).
+    opt.Lockout.MaxFailedAccessAttempts = 10;
+    opt.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(30);
+    opt.Lockout.AllowedForNewUsers = true;
     opt.User.RequireUniqueEmail = true;
     opt.SignIn.RequireConfirmedAccount = false;
     opt.Tokens.AuthenticatorTokenProvider = TokenOptions.DefaultAuthenticatorProvider;
@@ -266,6 +274,32 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("vault_detokenize", httpContext => RateLimitPartition.GetFixedWindowLimiter(partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon", factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueProcessingOrder = QueueProcessingOrder.OldestFirst, QueueLimit = 0 }));
     options.AddPolicy("auth_password_reset", httpContext => RateLimitPartition.GetFixedWindowLimiter(partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon", factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueProcessingOrder = QueueProcessingOrder.OldestFirst, QueueLimit = 0 }));
+    // ── G1-T1: anonymous authentication endpoints (fixed window, per client IP) ──
+    // Policy defaults: login 10/min, mfa 10/min (enable + verify share a window),
+    // refresh 30/min. Overridable through Auth:RateLimits:{Login|Mfa|Refresh}:PermitLimit
+    // and :WindowSeconds (tests lower the limits; operators may raise them behind a
+    // trusted proxy). The partition is the client IP only: the request body is not
+    // available to the synchronous partitioner, so per-e-mail keying would need a
+    // body-peeking middleware — IP keying is the stricter default against spraying.
+    var authRlConfig = builder.Configuration;
+    RateLimitPartition<string> AuthFixedWindow(HttpContext httpContext, string policy, string configKey, int defaultPermitLimit)
+    {
+        var permitLimit = int.TryParse(authRlConfig[$"Auth:RateLimits:{configKey}:PermitLimit"], out var pl) && pl > 0 ? pl : defaultPermitLimit;
+        var windowSeconds = int.TryParse(authRlConfig[$"Auth:RateLimits:{configKey}:WindowSeconds"], out var ws) && ws > 0 ? ws : 60;
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"{policy}:{clientIp}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromSeconds(windowSeconds),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    }
+    options.AddPolicy("auth_login",   httpContext => AuthFixedWindow(httpContext, "auth_login",   "Login",   defaultPermitLimit: 10));
+    options.AddPolicy("auth_mfa",     httpContext => AuthFixedWindow(httpContext, "auth_mfa",     "Mfa",     defaultPermitLimit: 10));
+    options.AddPolicy("auth_refresh", httpContext => AuthFixedWindow(httpContext, "auth_refresh", "Refresh", defaultPermitLimit: 30));
     options.AddPolicy("vault_admin_ops", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
         factory: _ => new FixedWindowRateLimiterOptions

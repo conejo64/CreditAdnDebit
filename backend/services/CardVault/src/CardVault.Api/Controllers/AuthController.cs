@@ -30,6 +30,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_login")]
     public async Task<IResult> Login([FromBody] LoginRequest req, CancellationToken ct)
     {
         var result = await _mediator.Send(new LoginCommand(req), ct);
@@ -38,6 +39,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("mfa/enable")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_mfa")]
     public async Task<IResult> MfaEnable([FromBody] MfaEnableRequest req, CancellationToken ct)
     {
         return await _mediator.Send(new MfaEnableCommand(req), ct);
@@ -45,6 +47,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("mfa/verify")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_mfa")]
     public async Task<IResult> MfaVerify([FromBody] MfaVerifyRequest req, CancellationToken ct)
     {
         var result = await _mediator.Send(new MfaVerifyCommand(req), ct);
@@ -53,6 +56,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("refresh")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_refresh")]
     public async Task<IResult> Refresh([FromBody] RefreshRequest? req, CancellationToken ct)
     {
         // SEC-03: the cv_rt cookie is the primary source; the (now-optional) body field
