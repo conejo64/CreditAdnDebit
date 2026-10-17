@@ -28,12 +28,19 @@ public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
     public static readonly TimeSpan MfaPendingTokenLifetime = TimeSpan.FromMinutes(5);
 
     private readonly JwtOptions _opt;
+    private readonly JwtSigningKeys _keys;
     private readonly UserManager<AppUser> _users;
     private readonly RoleManager<IdentityRole> _roleManager;
 
-    public TokenService(IOptions<JwtOptions> opt, UserManager<AppUser> users, RoleManager<IdentityRole> roleManager)
+    /// <summary>
+    /// G1-T5: every token leaves here signed with the ES256 private key held by
+    /// <see cref="JwtSigningKeys"/>; validation (including the MFA pending token) uses the
+    /// public half only, so this class never needs a shared secret.
+    /// </summary>
+    public TokenService(IOptions<JwtOptions> opt, JwtSigningKeys keys, UserManager<AppUser> users, RoleManager<IdentityRole> roleManager)
     {
         _opt = opt.Value;
+        _keys = keys;
         _users = users;
         _roleManager = roleManager;
     }
@@ -73,15 +80,12 @@ public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
             }
         }
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opt.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
         var token = new JwtSecurityToken(
             issuer: _opt.Issuer,
             audience: _opt.Audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(_opt.AccessTokenMinutes),
-            signingCredentials: creds);
+            signingCredentials: _keys.SigningCredentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -104,15 +108,12 @@ public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
             new("scope", string.Join(' ', scopeList))
         };
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opt.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
         var token = new JwtSecurityToken(
             issuer: _opt.Issuer,
             audience: _opt.Audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(_opt.AccessTokenMinutes),
-            signingCredentials: creds);
+            signingCredentials: _keys.SigningCredentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -132,15 +133,12 @@ public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
             new(MfaPendingPurposeClaim, MfaPendingTokenType)
         };
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opt.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
         var token = new JwtSecurityToken(
             issuer: _opt.Issuer,
             audience: _opt.Audience + MfaPendingAudienceSuffix,
             claims: claims,
             expires: expires.UtcDateTime,
-            signingCredentials: creds);
+            signingCredentials: _keys.SigningCredentials);
         token.Header["typ"] = MfaPendingTokenType;
 
         return new MfaPendingTokenIssue(new JwtSecurityTokenHandler().WriteToken(token), jti, expires);
@@ -158,8 +156,8 @@ public class TokenService : IUserTokenService, IOpenBankingTokenIssuer
             ValidateAudience = true,
             ValidAudience = _opt.Audience + MfaPendingAudienceSuffix,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opt.SigningKey)),
-            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+            IssuerSigningKey = _keys.PublicSecurityKey,
+            ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
             ValidTypes = [MfaPendingTokenType],
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero

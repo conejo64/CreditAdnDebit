@@ -147,11 +147,16 @@ builder.Services.AddKeyedSingleton<IWebhookSignatureValidator>("movistar-ec",
 builder.Services.AddScoped<OpenBankingService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddSwaggerGen();
+// G1-T5: CardVault is the token issuer. Its JWT options carry the ES256 private key (PEM via
+// Jwt:PrivateKeyPem / Jwt:PrivateKeyPath, never committed); the validator fails startup on a
+// missing/invalid key, a public key that does not pair with it, an ephemeral-key request
+// outside Development, or a leftover HS256 Jwt:SigningKey. JwtSigningKeys turns the validated
+// options into signing credentials, the bearer validation key and the JWKS entry.
 builder.Services.AddOptions<JwtOptions>()
-    .BindConfiguration("Jwt")
-    .ValidateDataAnnotations()
+    .BindConfiguration(JwtOptions.Section)
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
+builder.Services.AddSingleton<JwtSigningKeys>();
 // SEC-9: fail fast when required connection strings are absent from all config sources.
 builder.Services.AddOptions<RequiredConnectionStringsOptions>()
     .BindConfiguration("ConnectionStrings")
@@ -186,37 +191,42 @@ builder.Services.AddIdentityCore<AppUser>(opt =>
     opt.Tokens.AuthenticatorTokenProvider = TokenOptions.DefaultAuthenticatorProvider;
 }).AddRoles<IdentityRole>().AddEntityFrameworkStores<IdentityAppDbContext>().AddSignInManager().AddDefaultTokenProviders();
 // AuthN/AuthZ
-var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
-{
-    o.TokenValidationParameters = new TokenValidationParameters
+// G1-T5: the bearer handler validates with the public half of the issuer key (ES256 only).
+// Options are resolved from DI so they are the validated ones, including an ephemeral pair.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>, JwtSigningKeys>((o, jwtOptions, signingKeys) =>
     {
-        ValidateIssuer = true,
-        ValidIssuer = jwt.Issuer,
-        ValidateAudience = true,
-        ValidAudience = jwt.Audience,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
-        ValidateLifetime = true
-    };
-    // SEC-03: accept the access token from the cv_at cookie when no Authorization
-    // header is present, so browser clients never need to read the token via JS.
-    // Validation params/policies above are unchanged.
-    o.Events = new JwtBearerEvents
-    {
-        OnMessageReceived = context =>
+        var jwt = jwtOptions.Value;
+        o.TokenValidationParameters = new TokenValidationParameters
         {
-            if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
-                context.Request.Cookies.TryGetValue(CardVault.Api.Security.AuthCookieNames.AccessToken, out var cookieToken) &&
-                !string.IsNullOrEmpty(cookieToken))
+            ValidateIssuer = true,
+            ValidIssuer = jwt.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwt.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = signingKeys.PublicSecurityKey,
+            ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
+            ValidateLifetime = true
+        };
+        // SEC-03: accept the access token from the cv_at cookie when no Authorization
+        // header is present, so browser clients never need to read the token via JS.
+        // Validation params/policies above are unchanged.
+        o.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
             {
-                context.Token = cookieToken;
-            }
+                if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                    context.Request.Cookies.TryGetValue(CardVault.Api.Security.AuthCookieNames.AccessToken, out var cookieToken) &&
+                    !string.IsNullOrEmpty(cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
 
-            return Task.CompletedTask;
-        }
-    };
-});
+                return Task.CompletedTask;
+            }
+        };
+    });
 builder.Services.AddAuthorization(options =>
 {
     static bool HasScope(ClaimsPrincipal user, string scope)
@@ -397,6 +407,18 @@ var app = builder.Build();
         vaultOptForRateLimit.AdminRateLimit.PermitLimit,
         vaultOptForRateLimit.AdminRateLimit.WindowSeconds,
         vaultOptForRateLimit.AdminRateLimit.QueueLimit);
+}
+
+// ── G1-T5: load the JWT signing key before serving anything ──────────────────
+// Accessing the validated options here surfaces the operator-facing validation message
+// (OptionsValidationException) ahead of any other startup work, and resolving the keys
+// once logs which kid this instance signs with — the value a rotation is checked against.
+{
+    _ = app.Services.GetRequiredService<IOptions<JwtOptions>>().Value;
+    var signingKeys = app.Services.GetRequiredService<JwtSigningKeys>();
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CardVault.Startup").LogInformation(
+        "JWT signing key loaded: alg={Algorithm} kid={KeyId} ephemeral={Ephemeral}",
+        BuildingBlocks.Security.EcdsaKeyMaterial.Algorithm, signingKeys.KeyId, signingKeys.IsEphemeral);
 }
 
 // Create DBs quickly in Development (fast test). In prod, use Migrate().
@@ -681,10 +703,22 @@ if (app.Environment.IsDevelopment())
 }
 app.UseAuthentication();
 app.UseMiddleware<RequestIdMiddleware>();
+// G1-T5 (slice-2 follow-up): the limiter runs after authentication but BEFORE authorization.
+// After authorization, an anonymous request to an [Authorize] endpoint was answered 401 without
+// ever being counted, so brute force against protected auth endpoints was never throttled.
+// After authentication, HttpContext.User is populated, so the per-user vault_* partitions keep
+// keying by principal instead of degrading to the client IP.
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapPrometheusScrapingEndpoint("/metrics");
-app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { service = "CardVault", status = "ok" }));
+// G1-T5: public key set (RFC 7517) so validators and tooling can fetch the current signing
+// key by kid. Public material only; short public cache so a rotation propagates in minutes.
+app.MapGet("/.well-known/jwks.json", (JwtSigningKeys signingKeys, HttpResponse response) =>
+{
+    response.Headers.CacheControl = "public, max-age=300";
+    return Results.Ok(new { keys = new[] { signingKeys.PublicJwk } });
+}).AllowAnonymous();
 app.MapGet("/health/vault", async (VaultSettingsStore store, CancellationToken ct) =>
 {
     var s = await store.GetAsync(ct);

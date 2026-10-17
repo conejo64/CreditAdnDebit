@@ -1,3 +1,4 @@
+using BuildingBlocks.Security;
 using Confluent.Kafka;
 using IsoAudit.Api.Health;
 using IsoAudit.Api.Security;
@@ -19,10 +20,11 @@ var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<st
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
-// ADR-1: JwtOptions with ValidateOnStart + custom placeholder validator (SEC-3)
+// ADR-1 / G1-T5: JwtOptions with ValidateOnStart + fail-closed validator (SEC-3). IsoAudit
+// validates CardVault-issued JWTs with the ES256 public key only; a missing/invalid key, a
+// private key handed to this service, or the retired HS256 Jwt:Key stops the host.
 builder.Services.AddOptions<JwtOptions>()
     .BindConfiguration(JwtOptions.Section)
-    .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
@@ -35,7 +37,7 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     .Configure<IOptions<JwtOptions>, IHostEnvironment>((jwtBearerOpts, opts, env) =>
     {
         var jwtConfig = opts.Value;
-        var keyBytes = Encoding.UTF8.GetBytes(jwtConfig.Key);
+        var publicKey = JwtKeyConfigurationRules.LoadPublicKey(jwtConfig.PublicKeyPem, jwtConfig.PublicKeyPath);
         jwtBearerOpts.RequireHttpsMetadata = !env.IsDevelopment();
         jwtBearerOpts.TokenValidationParameters = new TokenValidationParameters
         {
@@ -44,7 +46,8 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             ValidateAudience = true,
             ValidAudience = jwtConfig.Audience,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            IssuerSigningKey = new ECDsaSecurityKey(publicKey) { KeyId = EcdsaKeyMaterial.ComputeKeyId(publicKey) },
+            ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
             ValidateLifetime = true
         };
         // SEC-03: accept the access token from the cv_at cookie when no Authorization

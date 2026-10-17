@@ -21,3 +21,9 @@ cf5a861d1ef1ca1872be4012eba56d8e74cf88eb:backend/services/CardVault/tests/CardVa
 # reason to be the fixed text "database unavailable". Nothing here is a real
 # credential, the host does not exist, and no connection is ever opened.
 28eb9bd71a79ef99c211835c499a5df17eff2a62:backend/services/IsoAudit/tests/IsoAudit.Tests/Health/IsoAuditReadinessStateTests.cs:inline-connection-string-password:25
+
+# Shell comment in the JWT key runbook that names the PEM header type
+# (the PKCS#8 PRIVATE KEY marker) to explain the expected format. There is no
+# key material on that line or anywhere in the file; the wording was changed
+# in the following commit, but the scanner still walks this original commit.
+f87d7aa25231455ceddc0abc1fe7d16bd37ab529:docs/runbooks/jwt-asymmetric-keys.md:private-key:31

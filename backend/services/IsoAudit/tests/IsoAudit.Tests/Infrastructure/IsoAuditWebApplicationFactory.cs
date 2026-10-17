@@ -1,3 +1,4 @@
+using BuildingBlocks.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 
 namespace IsoAudit.Tests.Infrastructure;
 
@@ -12,12 +14,29 @@ namespace IsoAudit.Tests.Infrastructure;
 /// WebApplicationFactory that boots IsoAudit.Api with:
 /// - InMemory database
 /// - Hosted services suppressed (Kafka consumer worker)
-/// - A valid test key for Jwt:Key so startup validation passes
+/// - A test-only ES256 public key for Jwt:PublicKeyPem (G1-T5). The matching private key
+///   stays in the test process so tests can mint tokens shaped like CardVault's; the host
+///   itself never sees it.
 /// </summary>
 public sealed class IsoAuditWebApplicationFactory : WebApplicationFactory<Program>
 {
-    // Valid non-placeholder test key (32+ chars, no forbidden substrings)
-    internal const string TestJwtKey = "TestJwtKeyForIsoAuditServiceTests32Plus";
+    internal const string Issuer   = "CardVault";
+    internal const string Audience = "CardSwitch";
+
+    // G1-T5: one ephemeral P-256 pair per test process, shared by every factory instance.
+    private static readonly EcdsaKeyPairPem TestKeyPair = EcdsaKeyMaterial.GenerateKeyPair();
+    internal static string PrivateKeyPem => TestKeyPair.PrivateKeyPem;
+    internal static string PublicKeyPem  => TestKeyPair.PublicKeyPem;
+
+    /// <summary>Signing credentials matching the public key the test host validates with.</summary>
+    internal static SigningCredentials CreateSigningCredentials() => CreateSigningCredentials(PrivateKeyPem);
+
+    internal static SigningCredentials CreateSigningCredentials(string privateKeyPem)
+    {
+        var ecdsa = EcdsaKeyMaterial.ImportPrivateKey(privateKeyPem);
+        var key = new ECDsaSecurityKey(ecdsa) { KeyId = EcdsaKeyMaterial.ComputeKeyId(ecdsa) };
+        return new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -25,9 +44,9 @@ public sealed class IsoAuditWebApplicationFactory : WebApplicationFactory<Progra
 
         // Inject valid test JWT settings so startup validation passes by default.
         // Issuer/Audience match CardVault's TokenService output (ADR-2, Task 2.2).
-        builder.UseSetting("Jwt:Key", TestJwtKey);
-        builder.UseSetting("Jwt:Issuer", "CardVault");
-        builder.UseSetting("Jwt:Audience", "CardSwitch");
+        builder.UseSetting("Jwt:PublicKeyPem", PublicKeyPem);
+        builder.UseSetting("Jwt:Issuer", Issuer);
+        builder.UseSetting("Jwt:Audience", Audience);
 
         builder.ConfigureTestServices(services =>
         {

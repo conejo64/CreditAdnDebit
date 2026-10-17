@@ -1,10 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
+using System.Security.Cryptography;
 using BuildingBlocks.Outbox;
+using BuildingBlocks.Security;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -19,8 +19,9 @@ namespace CardVault.Tests.Infrastructure;
 /// WebApplicationFactory that boots CardVault.Api with:
 /// - InMemory databases (CardVaultDbContext + IdentityAppDbContext)
 /// - Hosted services suppressed (Kafka, Outbox, background workers)
-/// - A test JWT signing key matching the appsettings.json defaults so
-///   tokens minted by <see cref="GenerateJwt"/> are accepted by the app.
+/// - A test-only ES256 key pair (G1-T5) generated once per test run, handed to the host
+///   as Jwt:PrivateKeyPem / Jwt:PublicKeyPem, so tokens minted by <see cref="GenerateJwt"/>
+///   are accepted by the app and nothing key-shaped is ever committed.
 /// </summary>
 public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Program>
 {
@@ -28,13 +29,29 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
     // of a specific shape (e.g. an expired MFA pending token) against the test host.
     internal const string Issuer    = "CardVault";
     internal const string Audience  = "CardSwitch";
-    // Valid non-placeholder test key (32+ chars, passes JwtOptionsValidator SEC-2).
-    internal const string SigningKey = "TestSigningKeyForCardVaultIntegrationTests";
+
+    // G1-T5: one ephemeral P-256 pair per test process. Every factory instance shares it so
+    // tokens minted by one factory validate against another (xUnit class fixtures reuse
+    // factories across tests). Nothing here is persisted.
+    private static readonly EcdsaKeyPairPem TestKeyPair = EcdsaKeyMaterial.GenerateKeyPair();
+    internal static string PrivateKeyPem => TestKeyPair.PrivateKeyPem;
+    internal static string PublicKeyPem  => TestKeyPair.PublicKeyPem;
+
+    /// <summary>Signing credentials matching the test host's public key (ES256, same kid).</summary>
+    internal static SigningCredentials CreateSigningCredentials() => CreateSigningCredentials(PrivateKeyPem);
+
+    /// <summary>Signing credentials for an arbitrary private key PEM (used for "wrong key" cases).</summary>
+    internal static SigningCredentials CreateSigningCredentials(string privateKeyPem)
+    {
+        var ecdsa = EcdsaKeyMaterial.ImportPrivateKey(privateKeyPem);
+        var key = new ECDsaSecurityKey(ecdsa) { KeyId = EcdsaKeyMaterial.ComputeKeyId(ecdsa) };
+        return new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256);
+    }
 
     // SEC-01: appsettings.Development.json no longer carries a live Vault:Keys value
     // (the previous k1/k2 values were purged from committed config). VaultCrypto still
     // requires at least one 32-byte AES-256-GCM key to construct, so tests supply their
-    // own test-only keys here — analogous to the Jwt:SigningKey override above. Key ids
+    // own test-only keys here — analogous to the Jwt key override above. Key ids
     // "k1"/"k2" are kept (test-only random values, NOT the previously leaked material)
     // because several existing integration tests target `?keyId=k1` on the HTTP rotate
     // endpoint and construct VaultOptions with "k1"/"k2" directly.
@@ -45,8 +62,11 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
     {
         builder.UseEnvironment("Development");
 
-        // Provide a valid signing key so startup secret validation (SEC-2) passes.
-        builder.UseSetting("Jwt:SigningKey", SigningKey);
+        // G1-T5: test-only ES256 key pair so startup validation passes and tests can sign
+        // tokens the host accepts. Both halves are supplied explicitly: the ephemeral-key
+        // mode (Jwt:DevelopmentEphemeralKeys) is exercised by its own test.
+        builder.UseSetting("Jwt:PrivateKeyPem", PrivateKeyPem);
+        builder.UseSetting("Jwt:PublicKeyPem", PublicKeyPem);
 
         // Provide test-only vault keys so VaultCrypto can construct (SEC-01: no live
         // key ships in committed config anymore).
@@ -86,22 +106,6 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
                 d => d.ServiceType == typeof(IEventBus));
             if (eventBusDescriptor is not null) services.Remove(eventBusDescriptor);
             services.AddSingleton<IEventBus>(new NullEventBus());
-
-            // ── Override JWT validation to use the test signing key ───────
-            services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, opt =>
-            {
-                opt.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer           = true,
-                    ValidIssuer              = Issuer,
-                    ValidateAudience         = true,
-                    ValidAudience            = Audience,
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningKey)),
-                    ValidateLifetime         = true,
-                    ClockSkew                = TimeSpan.FromMinutes(5)
-                };
-            });
         });
     }
 
@@ -128,14 +132,12 @@ public sealed class CardVaultWebApplicationFactory : WebApplicationFactory<Progr
             foreach (var (type, value) in extraClaims)
                 claims.Add(new Claim(type, value));
 
-        var key         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningKey));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token       = new JwtSecurityToken(
+        var token = new JwtSecurityToken(
             issuer:             Issuer,
             audience:           Audience,
             claims:             claims,
             expires:            DateTime.UtcNow.AddHours(1),
-            signingCredentials: credentials);
+            signingCredentials: CreateSigningCredentials());
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

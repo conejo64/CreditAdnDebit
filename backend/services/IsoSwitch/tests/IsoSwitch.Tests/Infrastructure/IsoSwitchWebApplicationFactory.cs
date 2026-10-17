@@ -1,3 +1,4 @@
+using BuildingBlocks.Security;
 using IsoSwitch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 
 namespace IsoSwitch.Tests.Infrastructure;
 
@@ -13,16 +15,32 @@ namespace IsoSwitch.Tests.Infrastructure;
 /// - InMemory database
 /// - Hosted services suppressed (Kafka, ISO simulator, background workers)
 /// - A valid test secret for Tokenization:Secret so startup validation passes
-/// - A valid test signing key for Jwt:SigningKey
+/// - A test-only ES256 public key for Jwt:PublicKeyPem (G1-T5). The matching private key
+///   stays in the test process so tests can mint tokens shaped like CardVault's; the host
+///   itself never sees it.
 /// </summary>
 public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Program>
 {
     // Valid non-placeholder test secrets (32+ chars, no forbidden substrings)
     internal const string TestTokenizationSecret = "TestTokenizationSecretForIsoSwitch32Plus";
-    internal const string TestJwtSigningKey      = "TestJwtSigningKeyForIsoSwitchTests32Plus";
     internal const string TestAdminApiKey        = "TestAdminApiKeyForIsoSwitchTests32PlusChars";
     internal const string Issuer                 = "CardVault";
     internal const string Audience               = "CardSwitch";
+
+    // G1-T5: one ephemeral P-256 pair per test process, shared by every factory instance.
+    private static readonly EcdsaKeyPairPem TestKeyPair = EcdsaKeyMaterial.GenerateKeyPair();
+    internal static string PrivateKeyPem => TestKeyPair.PrivateKeyPem;
+    internal static string PublicKeyPem  => TestKeyPair.PublicKeyPem;
+
+    /// <summary>Signing credentials matching the public key the test host validates with.</summary>
+    internal static SigningCredentials CreateSigningCredentials() => CreateSigningCredentials(PrivateKeyPem);
+
+    internal static SigningCredentials CreateSigningCredentials(string privateKeyPem)
+    {
+        var ecdsa = EcdsaKeyMaterial.ImportPrivateKey(privateKeyPem);
+        var key = new ECDsaSecurityKey(ecdsa) { KeyId = EcdsaKeyMaterial.ComputeKeyId(ecdsa) };
+        return new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -30,7 +48,7 @@ public sealed class IsoSwitchWebApplicationFactory : WebApplicationFactory<Progr
 
         // Inject valid test secrets so startup validation passes by default
         builder.UseSetting("Tokenization:Secret", TestTokenizationSecret);
-        builder.UseSetting("Jwt:SigningKey", TestJwtSigningKey);
+        builder.UseSetting("Jwt:PublicKeyPem", PublicKeyPem);
         // SEC-05/SEC-11: operator-supplied admin API key fail-fast validation
         builder.UseSetting("Admin:ApiKey", TestAdminApiKey);
 

@@ -1,26 +1,24 @@
+using BuildingBlocks.Security;
 using Microsoft.Extensions.Options;
 
 namespace IsoAudit.Api.Security;
 
 /// <summary>
-/// Custom IValidateOptions that rejects known DEV placeholder literals and
-/// JWT keys shorter than 32 characters (ADR-1, SEC-3).
+/// G1-T5: fail-closed startup validation of IsoAudit's JWT settings. The service must hold a
+/// valid ES256 public key, must not be handed a private key, and must no longer carry the
+/// retired HS256 <c>Jwt:Key</c>.
 /// </summary>
 internal sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
 {
-    private static readonly string[] Forbidden =
-        ["DEV_ONLY", "CHANGE_ME", "change_me", "placeholder"];
+    private readonly IConfiguration _configuration;
+
+    public JwtOptionsValidator(IConfiguration configuration) => _configuration = configuration;
 
     public ValidateOptionsResult Validate(string? name, JwtOptions options)
     {
-        if (string.IsNullOrWhiteSpace(options.Key) || options.Key.Length < 32)
-            return ValidateOptionsResult.Fail(
-                "Jwt:Key must be at least 32 characters.");
+        var failure = JwtKeyConfigurationRules.ValidateTokenValidatorOptions(
+            _configuration, "IsoAudit", options.Issuer, options.Audience, options.PublicKeyPem, options.PublicKeyPath);
 
-        if (Forbidden.Any(f => options.Key.Contains(f, StringComparison.OrdinalIgnoreCase)))
-            return ValidateOptionsResult.Fail(
-                "Jwt:Key is a known placeholder value; set a real secret.");
-
-        return ValidateOptionsResult.Success;
+        return failure is null ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failure);
     }
 }

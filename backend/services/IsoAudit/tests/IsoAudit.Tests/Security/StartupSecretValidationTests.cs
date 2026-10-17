@@ -3,8 +3,9 @@ using IsoAudit.Tests.Infrastructure;
 namespace IsoAudit.Tests.Security;
 
 /// <summary>
-/// Verifies SEC-3 at the composition root: IsoAudit refuses to start when Jwt:Key is
-/// absent, empty, a known DEV placeholder, or shorter than 32 characters.
+/// Verifies G1-T5 at the composition root: IsoAudit refuses to start when the CardVault
+/// ES256 public key (<c>Jwt:PublicKeyPem</c>) is absent or malformed, when a private key is
+/// handed to it instead, or when the retired HS256 <c>Jwt:Key</c> is still configured.
 /// </summary>
 /// <remarks>
 /// These tests own exactly one property — that <see cref="Api.Security.JwtOptionsValidator"/>
@@ -23,52 +24,50 @@ namespace IsoAudit.Tests.Security;
 /// Nothing is lost by relaxing it. Which rule rejected a key is covered exhaustively and
 /// deterministically by <see cref="JwtOptionsValidatorTests"/>, and that
 /// OptionsValidationException is what ValidateOnStart throws is a framework guarantee, not
-/// IsoAudit behaviour. <see cref="IsoAudit_ValidJwtKey_StartsSuccessfully"/> is the
+/// IsoAudit behaviour. <see cref="IsoAudit_ValidPublicKey_StartsSuccessfully"/> is the
 /// counterpart that keeps these assertions honest: it proves a good key does start the
 /// host, so "startup failed" can never pass vacuously.
 /// </remarks>
 public class StartupSecretValidationTests
 {
-    private static void AssertStartupIsRefused(string jwtKey)
+    private static void AssertStartupIsRefused(string setting, string value)
     {
         using var factory = new IsoAuditWebApplicationFactory()
-            .WithWebHostBuilder(b => b.UseSetting("Jwt:Key", jwtKey));
+            .WithWebHostBuilder(b => b.UseSetting(setting, value));
 
         var exception = Record.Exception(() => factory.CreateClient());
 
         Assert.NotNull(exception);
     }
 
-    // ── Missing key ──────────────────────────────────────────────────────────
-
     [Fact]
-    public void IsoAudit_MissingJwtKey_ThrowsOnStart()
+    public void IsoAudit_MissingPublicKey_ThrowsOnStart()
     {
-        AssertStartupIsRefused(string.Empty);
+        AssertStartupIsRefused("Jwt:PublicKeyPem", string.Empty);
     }
 
-    // ── DEV placeholder ──────────────────────────────────────────────────────
-
     [Fact]
-    public void IsoAudit_DevPlaceholderJwtKey_ThrowsOnStart()
+    public void IsoAudit_PrivateKeyInThePublicSlot_ThrowsOnStart()
     {
-        AssertStartupIsRefused("DEV_ONLY_CHANGE_ME_32CHARS_MINIMUM");
+        AssertStartupIsRefused("Jwt:PublicKeyPem", IsoAuditWebApplicationFactory.PrivateKeyPem);
     }
 
-    // ── Short key ────────────────────────────────────────────────────────────
-
     [Fact]
-    public void IsoAudit_ShortJwtKey_ThrowsOnStart()
+    public void IsoAudit_MalformedPublicKey_ThrowsOnStart()
     {
-        AssertStartupIsRefused("tooshort");
+        AssertStartupIsRefused("Jwt:PublicKeyPem", "-----BEGIN PUBLIC KEY-----\nnot-a-key\n-----END PUBLIC KEY-----");
     }
 
-    // ── Valid key ────────────────────────────────────────────────────────────
+    [Fact]
+    public void IsoAudit_RetiredSymmetricKeyStillConfigured_ThrowsOnStart()
+    {
+        AssertStartupIsRefused("Jwt:Key", "TestJwtKeyForIsoAuditServiceTests32Plus");
+    }
 
     [Fact]
-    public void IsoAudit_ValidJwtKey_StartsSuccessfully()
+    public void IsoAudit_ValidPublicKey_StartsSuccessfully()
     {
-        // IsoAuditWebApplicationFactory provides a valid key by default.
+        // IsoAuditWebApplicationFactory provides a valid public key by default.
         using var factory = new IsoAuditWebApplicationFactory();
         var client = factory.CreateClient(); // must NOT throw
         Assert.NotNull(client);

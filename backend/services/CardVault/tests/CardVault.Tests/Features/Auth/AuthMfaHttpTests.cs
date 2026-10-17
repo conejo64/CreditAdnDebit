@@ -90,12 +90,12 @@ public sealed class AuthMfaHttpTests : IDisposable
         => _client.PostAsJsonAsync("/api/auth/mfa/verify", new { mfaPendingToken = pendingToken, code });
 
     /// <summary>
-    /// Forges a pending-style token with the test signing key. Used to prove that expiry is
-    /// enforced and that a token is worthless without the server-side single-use record.
+    /// Forges a pending-style token with the given signing credentials. Used to prove that
+    /// expiry is enforced and that a token is worthless without the server-side single-use
+    /// record (G1-T5: the credentials are ES256; the test host's private key or a stranger's).
     /// </summary>
-    private static string ForgePendingToken(string userId, string jti, DateTime expires, string signingKey)
+    private static string ForgePendingToken(string userId, string jti, DateTime expires, SigningCredentials credentials)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey));
         var token = new JwtSecurityToken(
             issuer: CardVaultWebApplicationFactory.Issuer,
             audience: CardVaultWebApplicationFactory.Audience + ":mfa-pending",
@@ -108,7 +108,7 @@ public sealed class AuthMfaHttpTests : IDisposable
             ],
             notBefore: expires.AddMinutes(-5),
             expires: expires,
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+            signingCredentials: credentials);
         token.Header["typ"] = "mfa-pending";
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -249,7 +249,7 @@ public sealed class AuthMfaHttpTests : IDisposable
         await LoginForPendingTokenAsync(user.Email!, "MfaVerifyPassword3!");
         var (key, _) = await ReadMfaStateAsync(user.Id);
         var expired = ForgePendingToken(user.Id, Guid.NewGuid().ToString("N"),
-            DateTime.UtcNow.AddMinutes(-1), CardVaultWebApplicationFactory.SigningKey);
+            DateTime.UtcNow.AddMinutes(-1), CardVaultWebApplicationFactory.CreateSigningCredentials());
 
         var response = await VerifyAsync(expired, TotpTestHelper.CurrentCode(key!));
 
@@ -265,10 +265,12 @@ public sealed class AuthMfaHttpTests : IDisposable
 
         // Correct key, correct shape, but no login happened: the single-use record is absent.
         var wellFormedButUnissued = ForgePendingToken(user.Id, Guid.NewGuid().ToString("N"),
-            DateTime.UtcNow.AddMinutes(4), CardVaultWebApplicationFactory.SigningKey);
-        // Wrong key.
+            DateTime.UtcNow.AddMinutes(4), CardVaultWebApplicationFactory.CreateSigningCredentials());
+        // Wrong key: a stranger's ES256 private key.
         var wrongKey = ForgePendingToken(user.Id, Guid.NewGuid().ToString("N"),
-            DateTime.UtcNow.AddMinutes(4), "AnotherSigningKeyThatIsAlsoLongEnough-12345");
+            DateTime.UtcNow.AddMinutes(4),
+            CardVaultWebApplicationFactory.CreateSigningCredentials(
+                BuildingBlocks.Security.EcdsaKeyMaterial.GenerateKeyPair().PrivateKeyPem));
         // A real session token for the same user must not pass as a pending token.
         var sessionToken = _factory.GenerateJwt(["Operator"], [("uid", user.Id)]);
 
