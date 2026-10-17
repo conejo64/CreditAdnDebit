@@ -28,10 +28,10 @@ CI secret stores) write it with `\n` escape sequences — the services accept bo
 ## Generate a key pair
 
 ```bash
-# Private key, PKCS#8 PEM (-----BEGIN PRIVATE KEY-----)
+# Private key, PKCS#8 PEM (PEM header type `PRIVATE KEY`)
 openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out cardvault-jwt-private.pem
 
-# Public key, SubjectPublicKeyInfo PEM (-----BEGIN PUBLIC KEY-----)
+# Public key, SubjectPublicKeyInfo PEM (PEM header type `PUBLIC KEY`)
 openssl ec -in cardvault-jwt-private.pem -pubout -out cardvault-jwt-public.pem
 
 # Optional: the kid the services will derive (RFC 7638 thumbprint) — useful to confirm
