@@ -1,75 +1,120 @@
+using System.Security.Cryptography;
+using BuildingBlocks.Security;
 using IsoAudit.Api.Security;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace IsoAudit.Tests.Security;
 
 /// <summary>
-/// Unit tests for IsoAudit JwtOptionsValidator (ADR-1 validator matrix).
-/// Verifies SEC-3: rejects empty, short, DEV placeholder, and CHANGE_ME values;
-/// accepts a valid 32+ character non-placeholder key.
+/// G1-T5: IsoAudit only validates tokens, so its JWT options carry the CardVault ES256
+/// public key and nothing else. The validator fails closed when the key is missing or
+/// malformed, when a private key is handed to it (in the public slot or through the
+/// issuer-only settings), or when the retired HS256 <c>Jwt:Key</c> is still present.
 /// </summary>
 public class JwtOptionsValidatorTests
 {
-    private static ValidateOptionsResult Validate(string? key)
+    private static readonly EcdsaKeyPairPem Pair = EcdsaKeyMaterial.GenerateKeyPair();
+
+    private static ValidateOptionsResult Validate(JwtOptions options, IDictionary<string, string?>? extraConfiguration = null)
     {
-        var validator = new JwtOptionsValidator();
-        var opts = new JwtOptions { Key = key ?? string.Empty };
-        return validator.Validate(null, opts);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(extraConfiguration ?? new Dictionary<string, string?>())
+            .Build();
+        return new JwtOptionsValidator(configuration).Validate(null, options);
+    }
+
+    private static JwtOptions Valid() => new() { Issuer = "CardVault", Audience = "CardSwitch", PublicKeyPem = Pair.PublicKeyPem };
+
+    [Fact]
+    public void PublicKey_Succeeds() => Assert.True(Validate(Valid()).Succeeded);
+
+    [Fact]
+    public void EscapedNewlinesInThePem_AreAccepted()
+    {
+        var options = Valid();
+        options.PublicKeyPem = Pair.PublicKeyPem.Replace("\n", "\\n");
+
+        Assert.True(Validate(options).Succeeded);
     }
 
     [Fact]
-    public void EmptyKey_ReturnsFail()
+    public void MissingPublicKey_Fails_AndNamesTheSetting()
     {
-        var result = Validate(string.Empty);
+        var options = Valid();
+        options.PublicKeyPem = string.Empty;
+
+        var result = Validate(options);
+
         Assert.True(result.Failed);
+        Assert.Contains("Jwt:PublicKeyPem", result.FailureMessage);
     }
 
     [Fact]
-    public void WhitespaceKey_ReturnsFail()
+    public void PrivateKeyInThePublicKeySlot_Fails()
     {
-        var result = Validate("   ");
+        var options = Valid();
+        options.PublicKeyPem = Pair.PrivateKeyPem;
+
+        var result = Validate(options);
+
         Assert.True(result.Failed);
+        Assert.Contains("private key", result.FailureMessage, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void ThirtyOneCharKey_ReturnsFail()
+    [Theory]
+    [InlineData("Jwt:PrivateKeyPem")]
+    [InlineData("Jwt:PrivateKeyPath")]
+    public void IssuerPrivateKeySettingsHandedToAValidator_Fails(string setting)
     {
-        var result = Validate(new string('x', 31));
+        var result = Validate(Valid(), new Dictionary<string, string?> { [setting] = "anything" });
+
         Assert.True(result.Failed);
+        Assert.Contains(setting, result.FailureMessage);
     }
 
-    [Fact]
-    public void DevOnlyPlaceholder_ReturnsFail()
+    [Theory]
+    [InlineData("Jwt:SigningKey")]
+    [InlineData("Jwt:Key")]
+    public void LegacySymmetricKeyStillConfigured_Fails(string setting)
     {
-        var result = Validate("DEV_ONLY_CHANGE_ME_32CHARS_MINIMUM");
+        var result = Validate(Valid(), new Dictionary<string, string?> { [setting] = "TestJwtKeyForIsoAuditServiceTests32Plus" });
+
         Assert.True(result.Failed);
+        Assert.Contains(setting, result.FailureMessage);
     }
 
     [Fact]
-    public void ChangeMePlaceholder_ReturnsFail()
+    public void GarbagePem_Fails()
     {
-        var result = Validate("CHANGE_ME_IN_PRODUCTION_32_CHARS_MIN");
+        var options = Valid();
+        options.PublicKeyPem = "-----BEGIN PUBLIC KEY-----\nnot-a-key\n-----END PUBLIC KEY-----";
+
+        Assert.True(Validate(options).Failed);
+    }
+
+    [Fact]
+    public void CurveOtherThanP256_Fails()
+    {
+        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        var options = Valid();
+        options.PublicKeyPem = p384.ExportSubjectPublicKeyInfoPem();
+
+        var result = Validate(options);
+
         Assert.True(result.Failed);
+        Assert.Contains("P-256", result.FailureMessage);
     }
 
-    [Fact]
-    public void PlaceholderSubstring_ReturnsFail()
+    [Theory]
+    [InlineData("", "CardSwitch")]
+    [InlineData("CardVault", "")]
+    public void MissingIssuerOrAudience_Fails(string issuer, string audience)
     {
-        var result = Validate("this_is_a_placeholder_key_for_dev_usage_long_enough");
-        Assert.True(result.Failed);
-    }
+        var options = Valid();
+        options.Issuer = issuer;
+        options.Audience = audience;
 
-    [Fact]
-    public void Valid32CharRandomKey_ReturnsSuccess()
-    {
-        var result = Validate("xK9mP2nQ5rT8vW1yZ4bD7gH0aE3fI6jL9");
-        Assert.True(result.Succeeded);
-    }
-
-    [Fact]
-    public void Valid48CharRandomKey_ReturnsSuccess()
-    {
-        var result = Validate("aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aA6bB7c");
-        Assert.True(result.Succeeded);
+        Assert.True(Validate(options).Failed);
     }
 }

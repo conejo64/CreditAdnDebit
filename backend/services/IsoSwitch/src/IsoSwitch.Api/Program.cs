@@ -1,5 +1,6 @@
 using BuildingBlocks.Commercial;
 using BuildingBlocks.Kafka;
+using BuildingBlocks.Security;
 using IsoSwitch.Api;
 using IsoSwitch.Application;
 using IsoSwitch.Application.Config;
@@ -78,36 +79,46 @@ builder.Services.AddSingleton<IValidateOptions<AdminApiKeyOptions>, AdminApiKeyO
 builder.Services.AddSingleton<ITokenPanService, TokenPanService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSwaggerGen();
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
-var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
-{
-    o.TokenValidationParameters = new TokenValidationParameters
+// G1-T5: IsoSwitch validates CardVault-issued JWTs with the ES256 public key only. Options
+// are validated on start (missing/invalid key, a private key handed to this service, or the
+// retired HS256 Jwt:SigningKey all stop the host) and the bearer handler reads them from DI.
+builder.Services.AddOptions<JwtOptions>()
+    .BindConfiguration(JwtOptions.Section)
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((o, jwtOptions) =>
     {
-        ValidateIssuer = true,
-        ValidIssuer = jwt.Issuer,
-        ValidateAudience = true,
-        ValidAudience = jwt.Audience,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
-        ValidateLifetime = true
-    };
-    // SEC-03: accept the access token from the cv_at cookie when no Authorization
-    // header is present, so browser clients never need to read the token via JS.
-    o.Events = new JwtBearerEvents
-    {
-        OnMessageReceived = context =>
+        var jwt = jwtOptions.Value;
+        var publicKey = JwtKeyConfigurationRules.LoadPublicKey(jwt.PublicKeyPem, jwt.PublicKeyPath);
+        o.TokenValidationParameters = new TokenValidationParameters
         {
-            if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
-                context.Request.Cookies.TryGetValue("cv_at", out var cookieToken) &&
-                !string.IsNullOrEmpty(cookieToken))
+            ValidateIssuer = true,
+            ValidIssuer = jwt.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwt.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new ECDsaSecurityKey(publicKey) { KeyId = EcdsaKeyMaterial.ComputeKeyId(publicKey) },
+            ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
+            ValidateLifetime = true
+        };
+        // SEC-03: accept the access token from the cv_at cookie when no Authorization
+        // header is present, so browser clients never need to read the token via JS.
+        o.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
             {
-                context.Token = cookieToken;
+                if (string.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                    context.Request.Cookies.TryGetValue("cv_at", out var cookieToken) &&
+                    !string.IsNullOrEmpty(cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+                return Task.CompletedTask;
             }
-            return Task.CompletedTask;
-        }
-    };
-});
+        };
+    });
 builder.Services.AddAuthorization(options =>
 {
     static bool RoleOrPerm(ClaimsPrincipal user, string permission, params string[] roles)
@@ -126,8 +137,18 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Is
 // Postgres (switch db)
 // PendingModelChangesWarning is no longer silenced here: the snapshot is generated with the
 // baseline and IsoSwitch.IntegrationTests/CleanDatabaseMigrateTest asserts it matches the model.
+// G1-T7: no connection string (and no default credential) is committed. Fail closed at
+// startup, in every environment, when none is configured, rather than starting and failing
+// on the first database call. Development supplies it through the
+// ConnectionStrings__Postgres environment variable (docs/runbooks/database-credentials.md).
+var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres");
+if (string.IsNullOrWhiteSpace(postgresConnectionString))
+    throw new InvalidOperationException(
+        "Missing required configuration value: ConnectionStrings:Postgres. " +
+        "Set it via the ConnectionStrings__Postgres environment variable or a secrets-manager provider " +
+        "before starting IsoSwitch.Api (see docs/runbooks/database-credentials.md).");
 builder.Services.AddDbContext<IsoSwitchDbContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"), b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence")));
+    opt.UseNpgsql(postgresConnectionString, b => b.MigrationsAssembly("IsoSwitch.Infrastructure.Persistence")));
 builder.Services.AddSingleton<ISwitchEventPublisher, SwitchEventPublisher>();
 builder.Services.AddScoped<IIsoAuditService, IsoAuditService>();
 builder.Services.AddScoped<BinaryIsoAuditService>();

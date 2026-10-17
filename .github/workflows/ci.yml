@@ -9,6 +9,7 @@ on:
       - main
       # Gate 0 chained PRs target intermediate chain branches; review them with CI too.
       - 'fix/gate0-**'
+      - 'fix/gate1-**'
 
 jobs:
   secret-scan:

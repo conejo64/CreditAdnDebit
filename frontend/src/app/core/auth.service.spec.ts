@@ -133,3 +133,156 @@ describe('AuthService — cookie-based session (SEC-03)', () => {
       .flush(null, { status: 401, statusText: 'Unauthorized' });
   });
 });
+
+/**
+ * G1-T1: the login screen must not disclose why a login failed. Unknown user, wrong
+ * password, a locked account (all 401 from the backend) and a rate-limited client (429)
+ * all surface the same generic Spanish message.
+ */
+describe('AuthService — generic login failure message (G1-T1)', () => {
+  const GENERIC_MESSAGE = 'No se pudo iniciar sesión. Intente nuevamente en unos minutos.';
+  let service: AuthService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [provideRouter([])]
+    });
+    service = TestBed.inject(AuthService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.clear();
+  });
+
+  it('shows the generic message on 401 (unknown user / wrong password / locked account)', () => {
+    service.login('user@test.com', 'WrongPassword1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.authError()).toBe(GENERIC_MESSAGE);
+    expect(service.currentUser()).toBeNull();
+  });
+
+  it('shows the same generic message on 429 (rate limited)', () => {
+    service.login('user@test.com', 'Password1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush(null, { status: 429, statusText: 'Too Many Requests' });
+
+    expect(service.authError()).toBe(GENERIC_MESSAGE);
+    expect(service.authError()).not.toContain('bloquead');
+    expect(service.authError()).not.toContain('locked');
+  });
+
+  it('does not issue a refresh or logout request after a 429 on login', () => {
+    service.login('user@test.com', 'Password1234!');
+
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush(null, { status: 429, statusText: 'Too Many Requests' });
+
+    httpMock.expectNone(`${environment.apiUrl}/auth/refresh`);
+    httpMock.expectNone(`${environment.apiUrl}/auth/logout`);
+  });
+});
+
+/**
+ * G1-T3: login with MFA enabled answers { mfaRequired: true, mfaPendingToken } and no
+ * session. The service must keep that token in memory only (never localStorage), send it
+ * with the code to /auth/mfa/verify, and show one generic message when the verification is
+ * rejected without disclosing whether the token or the code was wrong.
+ */
+describe('AuthService — two-step MFA login (G1-T3)', () => {
+  const GENERIC_MFA_MESSAGE = 'No se pudo verificar el código. Intente nuevamente.';
+  let service: AuthService;
+  let httpMock: HttpTestingController;
+
+  const mockUser = {
+    id: '2',
+    email: 'mfa@test.com',
+    name: 'MFA User',
+    primaryRole: 'Operator',
+    roles: ['Operator'],
+    permissions: []
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [provideRouter([])]
+    });
+    service = TestBed.inject(AuthService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.clear();
+  });
+
+  function loginUntilMfaPending(): void {
+    service.login('mfa@test.com', 'Password123!');
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush({ mfaRequired: true, mfaPendingToken: 'pending-1', message: 'MFA_REQUIRED', user: null });
+  }
+
+  it('enters the MFA step, keeps the pending token out of localStorage and sets no user', () => {
+    loginUntilMfaPending();
+
+    expect(service.mfaPending()).toBeTrue();
+    expect(service.currentUser()).toBeNull();
+    expect(service.authError()).toBeNull();
+    const persisted = Object.keys(localStorage).map((key) => localStorage.getItem(key) ?? '');
+    expect(persisted.some((value) => value.includes('pending-1'))).toBeFalse();
+  });
+
+  it('sends the pending token and the code to /auth/mfa/verify and applies the session', () => {
+    loginUntilMfaPending();
+
+    service.verifyMfa('123456');
+
+    const verify = httpMock.expectOne(`${environment.apiUrl}/auth/mfa/verify`);
+    expect(verify.request.body).toEqual({ mfaPendingToken: 'pending-1', code: '123456' });
+    verify.flush({ mfaRequired: false, message: 'OK', user: mockUser });
+
+    expect(service.currentUser()?.email).toBe('mfa@test.com');
+    expect(service.mfaPending()).toBeFalse();
+  });
+
+  it('shows one generic message on a rejected verification and keeps the MFA step open', () => {
+    loginUntilMfaPending();
+
+    service.verifyMfa('000000');
+    httpMock.expectOne(`${environment.apiUrl}/auth/mfa/verify`)
+      .flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.authError()).toBe(GENERIC_MFA_MESSAGE);
+    expect(service.mfaPending()).toBeTrue();
+    expect(service.currentUser()).toBeNull();
+  });
+
+  it('cancelMfa returns to the credentials step and forgets the pending token', () => {
+    loginUntilMfaPending();
+
+    service.cancelMfa();
+    service.verifyMfa('123456');
+
+    expect(service.mfaPending()).toBeFalse();
+    httpMock.expectNone(`${environment.apiUrl}/auth/mfa/verify`);
+  });
+
+  it('treats an mfaRequired answer without a pending token as an invalid session', () => {
+    service.login('mfa@test.com', 'Password123!');
+    httpMock.expectOne(`${environment.apiUrl}/auth/login`)
+      .flush({ mfaRequired: true, mfaPendingToken: null, message: 'MFA_REQUIRED', user: null });
+
+    expect(service.mfaPending()).toBeFalse();
+    expect(service.authError()).not.toBeNull();
+  });
+});

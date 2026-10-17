@@ -25,7 +25,7 @@ public class AdminSeedGateTests
                 // Even with a valid admin seed config present, Production must
                 // never auto-seed — proves the gate, not just an empty default.
                 b.UseSetting("Seed:AdminEmail", "admin@demo.com");
-                b.UseSetting("Seed:AdminPassword", "Admin1234!");
+                b.UseSetting("Seed:AdminPassword", "DevSeedAdmin1234!");
             });
 
         using var client = factory.CreateClient(); // must NOT throw
@@ -46,7 +46,7 @@ public class AdminSeedGateTests
             .WithWebHostBuilder(b =>
             {
                 b.UseSetting("Seed:AdminEmail", "admin@demo.com");
-                b.UseSetting("Seed:AdminPassword", "Admin1234!");
+                b.UseSetting("Seed:AdminPassword", "DevSeedAdmin1234!");
             });
 
         using var client = factory.CreateClient();

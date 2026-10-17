@@ -30,21 +30,32 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_login")]
     public async Task<IResult> Login([FromBody] LoginRequest req, CancellationToken ct)
     {
         var result = await _mediator.Send(new LoginCommand(req), ct);
         return AuthCookieWriter.ApplyCookies(HttpContext, result);
     }
 
+    /// <summary>
+    /// G1-T3: enrolment requires an authenticated principal and re-checks the password; it
+    /// always acts on the caller's own identity (user id from claims, never from the body).
+    /// </summary>
     [HttpPost("mfa/enable")]
-    [AllowAnonymous]
+    [Authorize]
+    [EnableRateLimiting("auth_mfa")]
     public async Task<IResult> MfaEnable([FromBody] MfaEnableRequest req, CancellationToken ct)
     {
-        return await _mediator.Send(new MfaEnableCommand(req), ct);
+        var userId = CurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+            return Results.Unauthorized();
+
+        return await _mediator.Send(new MfaEnableCommand(userId, req), ct);
     }
 
     [HttpPost("mfa/verify")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_mfa")]
     public async Task<IResult> MfaVerify([FromBody] MfaVerifyRequest req, CancellationToken ct)
     {
         var result = await _mediator.Send(new MfaVerifyCommand(req), ct);
@@ -53,6 +64,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("refresh")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth_refresh")]
     public async Task<IResult> Refresh([FromBody] RefreshRequest? req, CancellationToken ct)
     {
         // SEC-03: the cv_rt cookie is the primary source; the (now-optional) body field
@@ -76,16 +88,17 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IResult> Me(CancellationToken ct)
     {
-        var userId =
-            User.FindFirstValue("uid") ??
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
-
+        var userId = CurrentUserId();
         if (string.IsNullOrWhiteSpace(userId))
             return Results.Unauthorized();
 
         return await _mediator.Send(new GetCurrentUserQuery(userId), ct);
     }
+
+    private string? CurrentUserId() =>
+        User.FindFirstValue("uid") ??
+        User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+        User.FindFirstValue("sub");
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]

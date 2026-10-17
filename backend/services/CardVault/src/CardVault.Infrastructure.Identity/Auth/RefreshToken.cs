@@ -14,5 +14,11 @@ public sealed class RefreshToken
     public string? ReplacedByTokenHash { get; set; }
 
     public string? Device { get; set; }
+
+    /// <summary>
+    /// G1-T4: every token descending from one login/MFA verification shares a family.
+    /// Rotation keeps the family; presenting an already-rotated token revokes the whole family.
+    /// </summary>
+    public Guid FamilyId { get; set; }
     public bool IsActive => RevokedOn is null && DateTimeOffset.UtcNow < ExpiresOn;
 }

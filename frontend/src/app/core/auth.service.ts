@@ -29,6 +29,8 @@ interface AuthenticatedUserResponse {
 
 interface AuthSessionResponse {
     mfaRequired: boolean;
+    // G1-T3: present only when mfaRequired is true — the short-lived challenge for mfa/verify.
+    mfaPendingToken?: string | null;
     message: string | null;
     user: AuthenticatedUserResponse | null;
 }
@@ -36,6 +38,19 @@ interface AuthSessionResponse {
 function isUnauthorizedError(error: unknown): boolean {
     return error instanceof HttpErrorResponse && error.status === 401;
 }
+
+// G1-T1: one message for every login rejection. The backend already answers 401 for an
+// unknown user, a wrong password and a locked account with the same body; a 429 (rate
+// limited) is folded into the same wording so the UI never hints at account state.
+const GENERIC_LOGIN_FAILURE = 'No se pudo iniciar sesión. Intente nuevamente en unos minutos.';
+
+function isLoginRejection(error: unknown): boolean {
+    return error instanceof HttpErrorResponse && (error.status === 401 || error.status === 429);
+}
+
+// G1-T3: the backend answers the same 401 whether the pending token or the code was wrong;
+// the UI mirrors that with one message and lets the user retry or go back.
+const GENERIC_MFA_FAILURE = 'No se pudo verificar el código. Intente nuevamente.';
 
 @Injectable({
     providedIn: 'root'
@@ -47,6 +62,11 @@ export class AuthService {
     private readonly currentUserSignal = signal<User | null>(this.readStoredUser());
     private readonly authErrorSignal = signal<string | null>(null);
     private readonly isSubmittingSignal = signal(false);
+    private readonly mfaPendingSignal = signal(false);
+
+    // G1-T3: the MFA pending token lives only in memory for the seconds between the two
+    // login steps. It is never written to localStorage/sessionStorage.
+    private pendingMfaToken: string | null = null;
 
     private refreshRequest$: Observable<void> | null = null;
 
@@ -62,6 +82,10 @@ export class AuthService {
         return this.isSubmittingSignal.asReadonly();
     }
 
+    get mfaPending() {
+        return this.mfaPendingSignal.asReadonly();
+    }
+
     login(email: string, password: string): void {
         this.authErrorSignal.set(null);
         this.isSubmittingSignal.set(true);
@@ -71,7 +95,14 @@ export class AuthService {
             .subscribe({
                 next: (response) => {
                     if (response.mfaRequired) {
-                        this.authErrorSignal.set('MFA requerido. Ese flujo aun no esta conectado en el frontend.');
+                        if (!response.mfaPendingToken) {
+                            this.authErrorSignal.set('La API no devolvio una sesion valida.');
+                            return;
+                        }
+
+                        this.pendingMfaToken = response.mfaPendingToken;
+                        this.mfaPendingSignal.set(true);
+                        this.authErrorSignal.set(null);
                         return;
                     }
 
@@ -82,11 +113,57 @@ export class AuthService {
 
                     this.router.navigate(['/app/dashboard']);
                 },
-                error: () => {
+                error: (error: unknown) => {
                     this.clearSession(false);
-                    this.authErrorSignal.set('No fue posible iniciar sesion con el backend.');
+                    this.authErrorSignal.set(
+                        isLoginRejection(error) ? GENERIC_LOGIN_FAILURE : 'No fue posible iniciar sesion con el backend.'
+                    );
                 }
             });
+    }
+
+    /**
+     * G1-T3: second login step. Sends the in-memory pending token together with the TOTP
+     * code; on success the backend sets the session cookies exactly as login does.
+     */
+    verifyMfa(code: string): void {
+        if (!this.pendingMfaToken) {
+            this.authErrorSignal.set(GENERIC_LOGIN_FAILURE);
+            return;
+        }
+
+        this.authErrorSignal.set(null);
+        this.isSubmittingSignal.set(true);
+
+        this.http.post<AuthSessionResponse>(`${environment.apiUrl}/auth/mfa/verify`, {
+            mfaPendingToken: this.pendingMfaToken,
+            code
+        })
+            .pipe(finalize(() => this.isSubmittingSignal.set(false)))
+            .subscribe({
+                next: (response) => {
+                    this.forgetMfaChallenge();
+
+                    if (!this.applySessionResponse(response)) {
+                        this.authErrorSignal.set('La API no devolvio una sesion valida.');
+                        return;
+                    }
+
+                    this.router.navigate(['/app/dashboard']);
+                },
+                error: (error: unknown) => {
+                    // Keep the step open: a mistyped code does not burn the challenge server-side.
+                    this.authErrorSignal.set(
+                        isLoginRejection(error) ? GENERIC_MFA_FAILURE : 'No fue posible verificar el código con el backend.'
+                    );
+                }
+            });
+    }
+
+    /** G1-T3: abandons the pending challenge and returns to the credentials step. */
+    cancelMfa(): void {
+        this.forgetMfaChallenge();
+        this.authErrorSignal.set(null);
     }
 
     refreshSession(): Observable<void> {
@@ -236,9 +313,15 @@ export class AuthService {
         this.currentUserSignal.set(user);
     }
 
+    private forgetMfaChallenge(): void {
+        this.pendingMfaToken = null;
+        this.mfaPendingSignal.set(false);
+    }
+
     private clearSession(redirect = true): void {
         this.currentUserSignal.set(null);
         this.authErrorSignal.set(null);
+        this.forgetMfaChallenge();
         localStorage.removeItem(USER_KEY);
 
         if (redirect) {

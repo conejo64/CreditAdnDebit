@@ -21,6 +21,8 @@ public sealed class IdentityAppDbContext : IdentityDbContext<AppUser>
             b.Property(x => x.UserId).IsRequired();
             b.Property(x => x.TokenHash).IsRequired();
             b.HasIndex(x => new { x.UserId, x.TokenHash }).IsUnique();
+            // G1-T4: family-wide revocation on refresh-token reuse queries by FamilyId.
+            b.HasIndex(x => x.FamilyId);
         });
 
         builder.Entity<PasswordResetToken>(b =>
