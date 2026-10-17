@@ -1,5 +1,6 @@
 using CardVault.Application.Features.Auth.Commands;
 using CardVault.Application.Ports;
+using CardVault.Application.Services;
 using CardVault.Api.Security;
 using CardVault.Infrastructure.Identity.Auth;
 using CardVault.Tests.Infrastructure;
@@ -357,7 +358,7 @@ public sealed class AuthHandlerTests : IDisposable
     [Fact]
     public async Task RefreshToken_TokenNotFound_ShouldReturn401()
     {
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
+        var handler = NewRefreshHandler();
         var request = new CardVault.Application.Contracts.RefreshRequest("nonexistent-token-value");
 
         var result = await handler.Handle(new RefreshTokenCommand(request), CancellationToken.None);
@@ -380,13 +381,15 @@ public sealed class AuthHandlerTests : IDisposable
         });
         await _idDb.SaveChangesAsync();
 
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
+        var handler = NewRefreshHandler();
         var result  = await handler.Handle(
             new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(raw)),
             CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>()
               .Which.StatusCode.Should().Be(401);
+        // G1-T4: an expired-but-never-revoked token is not reuse.
+        _db.AuditEvents.Should().BeEmpty();
     }
 
     [Fact]
@@ -404,13 +407,90 @@ public sealed class AuthHandlerTests : IDisposable
         });
         await _idDb.SaveChangesAsync();
 
-        var handler = new RefreshTokenCommandHandler(_idDb, _userManager, CreateHashOnlyTokenService(), null!);
+        var handler = NewRefreshHandler();
         var result  = await handler.Handle(
             new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(raw)),
             CancellationToken.None);
 
         result.Should().BeAssignableTo<IStatusCodeHttpResult>()
               .Which.StatusCode.Should().Be(401);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // G1-T4: refresh-token reuse detection (family revocation + audit)
+    // ─────────────────────────────────────────────────────────────
+
+    private RefreshTokenCommandHandler NewRefreshHandler()
+        => new(_idDb, _userManager, CreateHashOnlyTokenService(), null!, new AuditService(_db));
+
+    private async Task<string> SeedTokenAsync(string userId, Guid familyId, bool revoked = false)
+    {
+        var raw = TokenService.GenerateRefreshToken();
+        _idDb.RefreshTokens.Add(new RefreshToken
+        {
+            UserId = userId,
+            TokenHash = TokenService.HashRefreshToken(raw),
+            FamilyId = familyId,
+            ExpiresOn = DateTimeOffset.UtcNow.AddDays(7),
+            RevokedOn = revoked ? DateTimeOffset.UtcNow.AddMinutes(-5) : null
+        });
+        await _idDb.SaveChangesAsync();
+        return raw;
+    }
+
+    [Fact]
+    public async Task RefreshToken_PresentingARevokedToken_RevokesItsFamily_LeavesOtherFamiliesAlone_AndAudits()
+    {
+        var family = Guid.NewGuid();
+        var otherFamily = Guid.NewGuid();
+        var reused = await SeedTokenAsync("victim", family, revoked: true);
+        var successor = await SeedTokenAsync("victim", family);
+        var unrelated = await SeedTokenAsync("victim", otherFamily);
+
+        var result = await NewRefreshHandler().Handle(
+            new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(reused)),
+            CancellationToken.None);
+
+        result.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        var rows = await _idDb.RefreshTokens.ToListAsync();
+        rows.Single(r => r.TokenHash == TokenService.HashRefreshToken(successor)).RevokedOn.Should().NotBeNull("the family dies");
+        rows.Single(r => r.TokenHash == TokenService.HashRefreshToken(unrelated)).RevokedOn.Should().BeNull("another family is unaffected");
+
+        var audit = _db.AuditEvents.Should().ContainSingle().Which;
+        audit.EventType.Should().Be("auth.refresh.reuse_detected");
+        audit.PayloadJson.Should().Contain("victim").And.Contain(family.ToString());
+        audit.PayloadJson.Should().NotContain(TokenService.HashRefreshToken(reused)).And.NotContain(reused);
+        // The user is never looked up on the reuse path: nothing about the account is needed.
+        await _userManager.DidNotReceive().FindByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task RefreshToken_PresentingTheRevokedTokenTwice_AuditsEachDetection_WithoutFailing()
+    {
+        var family = Guid.NewGuid();
+        var reused = await SeedTokenAsync("victim", family, revoked: true);
+        var handler = NewRefreshHandler();
+
+        var first = await handler.Handle(new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(reused)), CancellationToken.None);
+        var second = await handler.Handle(new RefreshTokenCommand(new CardVault.Application.Contracts.RefreshRequest(reused)), CancellationToken.None);
+
+        first.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        second.Should().BeAssignableTo<IStatusCodeHttpResult>().Which.StatusCode.Should().Be(401);
+        _db.AuditEvents.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void RefreshTokenPolicy_DefaultsToSevenDays_AndHonoursConfiguration()
+    {
+        RefreshTokenPolicy.LifetimeDays(null).Should().Be(7);
+
+        var config = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        config["Jwt:RefreshTokenDays"].Returns("3");
+        RefreshTokenPolicy.LifetimeDays(config).Should().Be(3);
+
+        var invalid = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        invalid["Jwt:RefreshTokenDays"].Returns("0");
+        RefreshTokenPolicy.LifetimeDays(invalid).Should().Be(7, "a non-positive value falls back to the policy default");
     }
 
     // ─────────────────────────────────────────────────────────────
